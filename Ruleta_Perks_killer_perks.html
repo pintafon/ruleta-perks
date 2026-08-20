@@ -269,22 +269,8 @@
       <button class="session-btn" id="sessionBtn"><span class="dot"></span><span class="text">Vincular con Twitch</span></button>
       <div class="session-status" id="sessionStatus">No conectado</div>
       <div class="help-small" id="clientIdHelp">
-        La primera vez, pega aquí el <b>Client ID</b> de tu app de Twitch (se crea gratis en
-        <a href="https://dev.twitch.tv/console/apps/create" target="_blank" rel="noopener">dev.twitch.tv/console</a>,
-        tipo "Chat Bot", con esta URL exacta como Redirect URI: <span id="redirectUriHint"></span>).
-        Luego solo tienes que pulsar el botón y conceder permisos.
-      </div>
-      <div class="token-field">
-        <input type="password" id="clientIdInput" autocomplete="off" placeholder="Client ID de tu app de Twitch">
-        <button type="button" class="eye-toggle" id="toggleTokenBtn" title="Mostrar/ocultar">
-          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-            <path class="wing" d="M1 12c2-2.5 4-3.5 6-3.8 -1 1.2-1 2.6 0 3.8 -2-.3-4-1.3-6 -3.8z" transform="translate(0,0)"></path>
-            <path class="wing" d="M23 12c-2-2.5-4-3.5-6-3.8 1 1.2 1 2.6 0 3.8 2-.3 4-1.3 6-3.8z"></path>
-            <path fill="#fff" d="M12 6.5c-4 0-7.3 2.3-9 5.5 1.7 3.2 5 5.5 9 5.5s7.3-2.3 9-5.5c-1.7-3.2-5-5.5-9-5.5z" opacity="0.85"></path>
-            <circle class="pupil" cx="12" cy="12" r="2.6" fill="#0a0a0a"></circle>
-            <path class="lid" d="M4 12c2.5 2.6 5.3 4 8 4s5.5-1.4 8-4" stroke="#0a0a0a" stroke-width="1.6" fill="none" stroke-linecap="round"></path>
-          </svg>
-        </button>
+        Pulsa el botón, inicia sesión con tu cuenta de Twitch y concede permisos. Cada persona
+        que lo use se conecta a su propio canal y su propia votación, de forma independiente.
       </div>
     </div>
 
@@ -756,37 +742,18 @@ actualizarEstadoBotonEnVivo();
 
 const sessionBtn = document.getElementById('sessionBtn');
 const sessionStatus = document.getElementById('sessionStatus');
-const clientIdInput = document.getElementById('clientIdInput');
-const redirectUriHint = document.getElementById('redirectUriHint');
 
+// Client ID de la app de Twitch "valli_oficial". No es secreto (viaja siempre
+// visible en la URL de autorización de Twitch), así que puede quedar fijo aquí
+// en el código sin ningún problema de seguridad.
+const TWITCH_CLIENT_ID = 'fg9nqv4r3ngff4jn660da6ndunb472';
 const TWITCH_SCOPES = 'chat:read chat:edit';
-const CLIENT_ID_KEY = 'ruletaPerks_twitchClientId';
 const OAUTH_STATE_KEY = 'ruletaPerks_oauthState';
 
 function redirectUri(){
   // La misma URL donde vive esta página, sin query ni hash.
   return location.origin + location.pathname;
 }
-redirectUriHint.textContent = redirectUri();
-
-// El Client ID no es secreto (viaja siempre en la URL de autorización), así que se
-// puede recordar en este navegador para que el botón funcione con un solo clic la
-// próxima vez. El token de acceso, en cambio, NUNCA se guarda.
-clientIdInput.value = localStorage.getItem(CLIENT_ID_KEY) || '';
-clientIdInput.addEventListener('change', ()=>{
-  localStorage.setItem(CLIENT_ID_KEY, clientIdInput.value.trim());
-});
-
-/* Ojo alado: por defecto el campo está oculto (tipo password). Al pulsar
-   el ojo se revela como texto normal; al volver a pulsar, se vuelve a
-   ocultar. Así en directo, con el panel de ajustes cerrado o el ojo sin
-   pulsar, nadie puede leer el Client ID/token aunque se vea el recorte. */
-const toggleTokenBtn = document.getElementById('toggleTokenBtn');
-toggleTokenBtn.addEventListener('click', ()=>{
-  const oculto = clientIdInput.type === 'password';
-  clientIdInput.type = oculto ? 'text' : 'password';
-  toggleTokenBtn.classList.toggle('open', oculto);
-});
 
 function setStatus(text, kind){
   sessionStatus.textContent = text;
@@ -809,19 +776,12 @@ sessionBtn.addEventListener('click', ()=>{
     cerrarSesionTwitch();
     return;
   }
-  const clientId = clientIdInput.value.trim();
-  if(!clientId){
-    setStatus('Falta el Client ID de tu app de Twitch (ver arriba).', 'err');
-    clientIdInput.focus();
-    return;
-  }
-  localStorage.setItem(CLIENT_ID_KEY, clientId);
 
   const state = Math.random().toString(36).slice(2) + Date.now().toString(36);
   sessionStorage.setItem(OAUTH_STATE_KEY, state);
 
   const params = new URLSearchParams({
-    client_id: clientId,
+    client_id: TWITCH_CLIENT_ID,
     redirect_uri: redirectUri(),
     response_type: 'token',
     scope: TWITCH_SCOPES,
@@ -939,11 +899,10 @@ async function manejarRegresoDeTwitch(){
     return;
   }
 
-  const clientId = localStorage.getItem(CLIENT_ID_KEY);
   setStatus('Verificando cuenta de Twitch…');
   try{
     const resp = await fetch('https://api.twitch.tv/helix/users', {
-      headers: { 'Authorization': `Bearer ${accessToken}`, 'Client-Id': clientId }
+      headers: { 'Authorization': `Bearer ${accessToken}`, 'Client-Id': TWITCH_CLIENT_ID }
     });
     if(!resp.ok){
       // La API de Twitch devuelve un JSON con el motivo real (token inválido,
