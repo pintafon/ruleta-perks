@@ -781,7 +781,15 @@ async function conectarTwitch(username, oauthToken, channel){
     sessionBtn.querySelector('.text').textContent = 'Cerrar sesión';
     setStatus(`Conectado como ${username} · canal #${channel.replace(/^#/,'')}`, 'ok');
   } catch(e){
-    setStatus('No se pudo conectar a Twitch. Vuelve a vincular la cuenta.', 'err');
+    // tmi.js normalmente rechaza con un string ('Login authentication failed',
+    // 'No response from Twitch.', 'closed', etc.) o, más raro, con un Error.
+    // Lo mostramos tal cual para saber si es el token, el scope o la propia
+    // conexión, en vez de un mensaje genérico que no dice nada.
+    const motivo = typeof e === 'string' ? e
+      : (e && e.message) ? e.message
+      : JSON.stringify(e);
+    console.error('Fallo al conectar con el chat de Twitch:', e);
+    setStatus(`No se pudo conectar al chat de Twitch: ${motivo}`, 'err');
     twitchClient = null;
   }
 }
@@ -826,14 +834,26 @@ async function manejarRegresoDeTwitch(){
     const resp = await fetch('https://api.twitch.tv/helix/users', {
       headers: { 'Authorization': `Bearer ${accessToken}`, 'Client-Id': clientId }
     });
-    if(!resp.ok) throw new Error('helix_users_failed');
+    if(!resp.ok){
+      // La API de Twitch devuelve un JSON con el motivo real (token inválido,
+      // Client ID que no coincide con el token, límite de peticiones, etc.).
+      // Lo leemos y lo mostramos en vez de un "algo falló" genérico.
+      let detalle = `HTTP ${resp.status}`;
+      try{
+        const errJson = await resp.json();
+        if(errJson && errJson.message) detalle = `HTTP ${resp.status} — ${errJson.message}`;
+      } catch(_e){ /* la respuesta no traía JSON, nos quedamos con el HTTP status */ }
+      throw new Error(detalle);
+    }
     const data = await resp.json();
     const login = data && data.data && data.data[0] && data.data[0].login;
-    if(!login) throw new Error('no_login');
+    if(!login) throw new Error('Twitch respondió sin datos de usuario (login vacío).');
     // Por defecto escucha el chat de tu propio canal.
     await conectarTwitch(login, accessToken, login);
   } catch(e){
-    setStatus('No se pudo verificar la cuenta de Twitch. Revisa el Client ID e inténtalo de nuevo.', 'err');
+    const motivo = (e && e.message) ? e.message : String(e);
+    console.error('Fallo al verificar la cuenta de Twitch:', e);
+    setStatus(`No se pudo verificar la cuenta de Twitch: ${motivo}`, 'err');
   }
 }
 
