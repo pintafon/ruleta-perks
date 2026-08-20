@@ -12,6 +12,24 @@
     font-family:'Segoe UI',Arial,sans-serif; padding:18px; background:transparent; position:relative;
   }
 
+  /* Panel de fondo semitransparente detrás de todo el contenido: sin esto,
+     el texto blanco es invisible si se abre la página suelta en una pestaña
+     normal (fondo blanco del navegador) o sobre un fondo claro en OBS. Con
+     este panel se ve siempre, y sigue funcionando igual como overlay
+     transparente sobre la imagen del juego en OBS. */
+  #panel{
+    display:flex; flex-direction:column; align-items:center;
+    background:rgba(0,0,0,.38); border-radius:18px; padding:22px 26px;
+  }
+
+  /* Aviso de error visible en pantalla en vez de una página en blanco si
+     algo falla al cargar (mucho más fácil de diagnosticar que "no se ve nada"). */
+  #errorBanner{
+    display:none; position:fixed; top:0; left:0; right:0; z-index:999;
+    background:#8a0b0b; color:#fff; font:800 13px/1.4 Arial,sans-serif;
+    padding:10px 16px; text-align:center;
+  }
+
   /* Timer estilo "00:08" */
   #timer{
     color:#ffb020; font-size:56px; font-weight:900; text-align:center; line-height:1; margin-bottom:14px;
@@ -202,6 +220,10 @@
 </head>
 <body>
 
+<div id="errorBanner"></div>
+
+<div id="panel">
+
 <div id="timer">00:00</div>
 
 <div class="cartas" id="cartas"></div>
@@ -222,6 +244,8 @@
   <div class="modo-tab active" id="tabChat">MODO CHAT</div>
   <div class="modo-tab" id="tabManual">MODO MANUAL</div>
 </div>
+
+</div><!-- /#panel -->
 
 <div class="stream-controls">
   <span class="twitch-light off" id="twitchLight" title="Twitch: no vinculado"></span>
@@ -274,18 +298,38 @@
   </div>
 </div>
 
-<!-- TMI (twitch chat): si unpkg.com falla (bloqueador de anuncios, Brave Shields,
-     red restrictiva…) se reintenta automáticamente con jsdelivr como respaldo. -->
+<!-- Aviso de error global visible en pantalla: si CUALQUIER cosa del script
+     de abajo lanza una excepción, ya no queda una página en blanco sin
+     explicación — se muestra el motivo arriba en rojo. -->
 <script>
+  window.addEventListener('error', function(ev){
+    const b = document.getElementById('errorBanner');
+    if(!b) return;
+    b.style.display = 'block';
+    b.textContent = 'Error cargando la página: ' + (ev.message || ev.error || 'error desconocido') +
+      (ev.filename ? ' (' + ev.filename.split('/').pop() + ':' + ev.lineno + ')' : '');
+  });
+</script>
+
+<!-- TMI (twitch chat): si unpkg.com falla (bloqueador de anuncios, Brave Shields,
+     red restrictiva…) se reintenta automáticamente con jsdelivr y luego con
+     cdnjs como segundo respaldo, por si el primero también está bloqueado. -->
+<script>
+  function cargarTmiRespaldo2(){
+    if(window.tmi) return;
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/tmi.js/1.8.5/tmi.min.js';
+    document.head.appendChild(s);
+  }
   function cargarTmiRespaldo(){
     if(window.tmi) return; // ya cargó por otra vía, no dupliques
     const s = document.createElement('script');
     s.src = 'https://cdn.jsdelivr.net/npm/tmi.js@1.8.5/dist/tmi.min.js';
-    s.onerror = ()=>{ window.__tmiFallo = true; };
+    s.onerror = cargarTmiRespaldo2;
     document.head.appendChild(s);
   }
 </script>
-<script src="https://unpkg.com/tmi.js@latest/dist/tmi.min.js" onerror="cargarTmiRespaldo()"></script>
+<script src="https://unpkg.com/tmi.js@latest/dist/tmi.min.js" onerror="cargarTmiRespaldo()" defer></script>
 <script>
 /* Sesión de Twitch: se pide en cada uso, nunca se guarda en disco/localStorage/cookies.
    Vive solo en memoria mientras la pestaña está abierta; al cerrar sesión o cerrar/recargar
@@ -800,7 +844,7 @@ function esperarTmi(timeoutMs){
 
 async function conectarTwitch(username, oauthToken, channel){
   try{
-    await esperarTmi(6000);
+    await esperarTmi(12000);
     if(twitchClient){ twitchClient.disconnect().catch(()=>{}); twitchClient = null; }
     twitchClient = new tmi.Client({
       options:{ debug:false },
