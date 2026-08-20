@@ -125,15 +125,15 @@
 
   /* Luz de estado de Twitch: visible siempre fuera del panel de Ajustes, para
      saber de un vistazo (incluso en directo, sin abrir nada) si la cuenta
-     sigue vinculada. Gris = sin vincular, ámbar parpadeante = conectando,
-     verde = conectado y escuchando el chat. */
+     sigue vinculada. Rojo = sin vincular / desconectado, ámbar parpadeante =
+     conectando, verde = conectado y escuchando el chat. */
   .twitch-light{
-    width:12px; height:12px; border-radius:50%; background:#555; border:1px solid rgba(255,255,255,.35);
-    box-shadow:0 0 4px rgba(0,0,0,.6); flex:0 0 auto; cursor:default;
+    width:12px; height:12px; border-radius:50%; background:#e74c3c; border:1px solid rgba(255,255,255,.35);
+    box-shadow:0 0 6px #e74c3c; flex:0 0 auto; cursor:default;
   }
   .twitch-light.conectando{ background:#e6b400; box-shadow:0 0 8px #e6b400; animation:pulse 1s infinite; }
   .twitch-light.on{ background:#2ecc71; box-shadow:0 0 8px #2ecc71; }
-  .twitch-light.off{ background:#555; box-shadow:none; }
+  .twitch-light.off{ background:#e74c3c; box-shadow:0 0 6px #e74c3c; }
 
   /* Panel desplegable único: tiempo, vínculo con Twitch y reinicio forzado */
   .config-control{
