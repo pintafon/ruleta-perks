@@ -113,18 +113,20 @@
   .modo-tab{ padding:8px 14px; background:rgba(0,0,0,.55); color:#bbb; font-weight:800; font-size:11px; letter-spacing:.5px; cursor:pointer; }
   .modo-tab.active{ background:#333; color:#fff; }
 
-  /* ---- Controles del streamer (todo detrás del engranaje de ajustes) ---- */
-  .stream-controls{ position:fixed; right:14px; top:14px; z-index:20; }
+  /* ---- Controles del streamer (todo detrás del engranaje de ajustes) ----
+     Más pequeño y más pegado a la esquina para que el recorte en OBS
+     (filtro Recortar/Pad sobre la fuente) necesite tapar el mínimo posible. */
+  .stream-controls{ position:fixed; right:8px; top:8px; z-index:20; }
   .icon-btn{
-    width:38px; height:38px; border-radius:8px; background:rgba(0,0,0,.55); border:1px solid rgba(255,255,255,.3);
-    color:#fff; font-size:16px; display:flex; align-items:center; justify-content:center; cursor:pointer;
+    width:24px; height:24px; border-radius:6px; background:rgba(0,0,0,.55); border:1px solid rgba(255,255,255,.3);
+    color:#fff; font-size:12px; display:flex; align-items:center; justify-content:center; cursor:pointer;
   }
   .icon-btn.danger{ background:rgba(138,11,11,.85); border-color:#ff5c5c; }
 
   /* Panel desplegable único: tiempo, vínculo con Twitch y reinicio forzado */
   .config-control{
-    display:none; flex-direction:column; gap:12px; position:absolute; right:0; top:46px; z-index:25;
-    width:270px; background:rgba(10,10,10,.94); border:1px solid rgba(255,255,255,.3); border-radius:10px; padding:14px;
+    display:none; flex-direction:column; gap:12px; position:absolute; right:0; top:32px; z-index:25;
+    width:250px; background:rgba(10,10,10,.94); border:1px solid rgba(255,255,255,.3); border-radius:10px; padding:14px;
   }
   .config-control.show{ display:flex; }
   .config-section{ display:flex; flex-direction:column; gap:6px; }
@@ -135,10 +137,26 @@
     width:56px; background:#1a1a1a; border:1px solid #444; border-radius:6px; color:#fff; font-weight:900;
     font-size:14px; text-align:center; outline:none; height:32px;
   }
-  .config-control input[type="text"]{
+  .config-control input[type="text"],
+  .config-control input[type="password"]{
     flex:1; height:32px; border-radius:6px; border:1px solid #444; background:#1a1a1a; color:#fff;
     padding:0 8px; font-size:12px; outline:none;
   }
+
+  /* ---- Campo del Client ID / token, oculto por defecto con "ojo alado" ---- */
+  .token-field{ position:relative; display:flex; align-items:center; }
+  .token-field input{ width:100%; padding-right:30px !important; letter-spacing:1px; }
+  .eye-toggle{
+    position:absolute; right:5px; top:50%; transform:translateY(-50%);
+    width:22px; height:22px; border:none; background:transparent; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; padding:0; opacity:.75;
+  }
+  .eye-toggle:hover{ opacity:1; }
+  .eye-toggle svg{ width:16px; height:16px; }
+  .eye-toggle .wing{ fill:#9fd8ff; }
+  .eye-toggle .lid{ display:none; }
+  .eye-toggle.open .lid{ display:block; }
+  .eye-toggle.open .pupil{ display:none; }
   .apply-btn{ height:32px; padding:0 12px; border-radius:6px; background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.3); color:#fff; font-weight:800; font-size:12px; cursor:pointer; }
   .config-control hr{ border:none; border-top:1px solid rgba(255,255,255,.15); }
 
@@ -219,7 +237,18 @@
         tipo "Chat Bot", con esta URL exacta como Redirect URI: <span id="redirectUriHint"></span>).
         Luego solo tienes que pulsar el botón y conceder permisos.
       </div>
-      <input type="text" id="clientIdInput" autocomplete="off" placeholder="Client ID de tu app de Twitch">
+      <div class="token-field">
+        <input type="password" id="clientIdInput" autocomplete="off" placeholder="Client ID de tu app de Twitch">
+        <button type="button" class="eye-toggle" id="toggleTokenBtn" title="Mostrar/ocultar">
+          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path class="wing" d="M1 12c2-2.5 4-3.5 6-3.8 -1 1.2-1 2.6 0 3.8 -2-.3-4-1.3-6 -3.8z" transform="translate(0,0)"></path>
+            <path class="wing" d="M23 12c-2-2.5-4-3.5-6-3.8 1 1.2 1 2.6 0 3.8 2-.3 4-1.3 6-3.8z"></path>
+            <path fill="#fff" d="M12 6.5c-4 0-7.3 2.3-9 5.5 1.7 3.2 5 5.5 9 5.5s7.3-2.3 9-5.5c-1.7-3.2-5-5.5-9-5.5z" opacity="0.85"></path>
+            <circle class="pupil" cx="12" cy="12" r="2.6" fill="#0a0a0a"></circle>
+            <path class="lid" d="M4 12c2.5 2.6 5.3 4 8 4s5.5-1.4 8-4" stroke="#0a0a0a" stroke-width="1.6" fill="none" stroke-linecap="round"></path>
+          </svg>
+        </button>
+      </div>
     </div>
 
     <hr>
@@ -673,6 +702,17 @@ clientIdInput.addEventListener('change', ()=>{
   localStorage.setItem(CLIENT_ID_KEY, clientIdInput.value.trim());
 });
 
+/* Ojo alado: por defecto el campo está oculto (tipo password). Al pulsar
+   el ojo se revela como texto normal; al volver a pulsar, se vuelve a
+   ocultar. Así en directo, con el panel de ajustes cerrado o el ojo sin
+   pulsar, nadie puede leer el Client ID/token aunque se vea el recorte. */
+const toggleTokenBtn = document.getElementById('toggleTokenBtn');
+toggleTokenBtn.addEventListener('click', ()=>{
+  const oculto = clientIdInput.type === 'password';
+  clientIdInput.type = oculto ? 'text' : 'password';
+  toggleTokenBtn.classList.toggle('open', oculto);
+});
+
 function setStatus(text, kind){
   sessionStatus.textContent = text;
   sessionStatus.classList.remove('ok','err');
@@ -718,7 +758,12 @@ async function conectarTwitch(username, oauthToken, channel){
     });
 
     twitchClient.on('message', (ch, tags, message, self)=>{
-      if(self) return;
+      // Nota: antes se ignoraban los mensajes "self" (los que escribe la
+      // propia cuenta vinculada). Eso hacía que, al probar escribiendo tú
+      // mismo A/B/C/D/E en tu chat con la cuenta vinculada, nunca se
+      // contaran. Los anuncios del bot (twitchClient.say) son frases
+      // completas y nunca coinciden con una sola letra, así que no hay
+      // riesgo de que se cuenten solos como voto.
       const user = (tags.username || tags['display-name'] || '').toLowerCase();
       if(!user) return;
       mensajesDetectados++;
