@@ -116,12 +116,24 @@
   /* ---- Controles del streamer (todo detrás del engranaje de ajustes) ----
      Más pequeño y más pegado a la esquina para que el recorte en OBS
      (filtro Recortar/Pad sobre la fuente) necesite tapar el mínimo posible. */
-  .stream-controls{ position:fixed; right:8px; top:8px; z-index:20; }
+  .stream-controls{ position:fixed; right:8px; top:8px; z-index:20; display:flex; align-items:center; gap:6px; }
   .icon-btn{
     width:24px; height:24px; border-radius:6px; background:rgba(0,0,0,.55); border:1px solid rgba(255,255,255,.3);
     color:#fff; font-size:12px; display:flex; align-items:center; justify-content:center; cursor:pointer;
   }
   .icon-btn.danger{ background:rgba(138,11,11,.85); border-color:#ff5c5c; }
+
+  /* Luz de estado de Twitch: visible siempre fuera del panel de Ajustes, para
+     saber de un vistazo (incluso en directo, sin abrir nada) si la cuenta
+     sigue vinculada. Gris = sin vincular, ámbar parpadeante = conectando,
+     verde = conectado y escuchando el chat. */
+  .twitch-light{
+    width:12px; height:12px; border-radius:50%; background:#555; border:1px solid rgba(255,255,255,.35);
+    box-shadow:0 0 4px rgba(0,0,0,.6); flex:0 0 auto; cursor:default;
+  }
+  .twitch-light.conectando{ background:#e6b400; box-shadow:0 0 8px #e6b400; animation:pulse 1s infinite; }
+  .twitch-light.on{ background:#2ecc71; box-shadow:0 0 8px #2ecc71; }
+  .twitch-light.off{ background:#555; box-shadow:none; }
 
   /* Panel desplegable único: tiempo, vínculo con Twitch y reinicio forzado */
   .config-control{
@@ -212,6 +224,7 @@
 </div>
 
 <div class="stream-controls">
+  <span class="twitch-light off" id="twitchLight" title="Twitch: no vinculado"></span>
   <button class="icon-btn" id="gear" title="Ajustes">⚙️</button>
 
   <div class="config-control" id="configControls">
@@ -261,8 +274,18 @@
   </div>
 </div>
 
-<!-- TMI (twitch chat) -->
-<script src="https://unpkg.com/tmi.js@latest/dist/tmi.min.js"></script>
+<!-- TMI (twitch chat): si unpkg.com falla (bloqueador de anuncios, Brave Shields,
+     red restrictiva…) se reintenta automáticamente con jsdelivr como respaldo. -->
+<script>
+  function cargarTmiRespaldo(){
+    if(window.tmi) return; // ya cargó por otra vía, no dupliques
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/tmi.js@1.8.5/dist/tmi.min.js';
+    s.onerror = ()=>{ window.__tmiFallo = true; };
+    document.head.appendChild(s);
+  }
+</script>
+<script src="https://unpkg.com/tmi.js@latest/dist/tmi.min.js" onerror="cargarTmiRespaldo()"></script>
 <script>
 /* Sesión de Twitch: se pide en cada uso, nunca se guarda en disco/localStorage/cookies.
    Vive solo en memoria mientras la pestaña está abierta; al cerrar sesión o cerrar/recargar
@@ -719,6 +742,16 @@ function setStatus(text, kind){
   if(kind) sessionStatus.classList.add(kind);
 }
 
+/* Luz exterior de vinculación: se ve siempre, sin abrir Ajustes.
+   estado: 'off' (no vinculado) | 'conectando' | 'on' (conectado). */
+const twitchLight = document.getElementById('twitchLight');
+function setLuzTwitch(estado){
+  twitchLight.classList.remove('off','conectando','on');
+  twitchLight.classList.add(estado);
+  const textos = { off:'Twitch: no vinculado', conectando:'Twitch: conectando…', on:'Twitch: vinculado y escuchando el chat' };
+  twitchLight.title = textos[estado] || '';
+}
+
 sessionBtn.addEventListener('click', ()=>{
   if(session.conectado){
     cerrarSesionTwitch();
@@ -747,8 +780,27 @@ sessionBtn.addEventListener('click', ()=>{
   window.location.href = `https://id.twitch.tv/oauth2/authorize?${params.toString()}`;
 });
 
+/* Espera a que la librería tmi.js esté disponible, por si tarda en llegar
+   (CDN lento, o cayó al respaldo). Reintenta cada 150ms hasta el timeout. */
+function esperarTmi(timeoutMs){
+  return new Promise((resolve, reject)=>{
+    if(typeof tmi !== 'undefined') return resolve();
+    const inicio = Date.now();
+    const intervaloEspera = setInterval(()=>{
+      if(typeof tmi !== 'undefined'){
+        clearInterval(intervaloEspera);
+        resolve();
+      } else if(Date.now() - inicio > timeoutMs){
+        clearInterval(intervaloEspera);
+        reject(new Error('No se pudo cargar la librería de chat de Twitch (tmi.js). Puede que un bloqueador de anuncios o los "Shields" de Brave estén bloqueando unpkg.com/jsdelivr.net. Desactívalo para esta página y recarga.'));
+      }
+    }, 150);
+  });
+}
+
 async function conectarTwitch(username, oauthToken, channel){
   try{
+    await esperarTmi(6000);
     if(twitchClient){ twitchClient.disconnect().catch(()=>{}); twitchClient = null; }
     twitchClient = new tmi.Client({
       options:{ debug:false },
@@ -780,6 +832,7 @@ async function conectarTwitch(username, oauthToken, channel){
     sessionBtn.classList.add('conectado');
     sessionBtn.querySelector('.text').textContent = 'Cerrar sesión';
     setStatus(`Conectado como ${username} · canal #${channel.replace(/^#/,'')}`, 'ok');
+    setLuzTwitch('on');
   } catch(e){
     // tmi.js normalmente rechaza con un string ('Login authentication failed',
     // 'No response from Twitch.', 'closed', etc.) o, más raro, con un Error.
@@ -790,6 +843,7 @@ async function conectarTwitch(username, oauthToken, channel){
       : JSON.stringify(e);
     console.error('Fallo al conectar con el chat de Twitch:', e);
     setStatus(`No se pudo conectar al chat de Twitch: ${motivo}`, 'err');
+    setLuzTwitch('off');
     twitchClient = null;
   }
 }
@@ -801,6 +855,7 @@ function cerrarSesionTwitch(){
   sessionBtn.classList.remove('conectado');
   sessionBtn.querySelector('.text').textContent = 'Vincular con Twitch';
   setStatus('No conectado');
+  setLuzTwitch('off');
 }
 
 /* Al volver de Twitch, el token llega en el fragmento de la URL (#access_token=...).
@@ -817,14 +872,18 @@ async function manejarRegresoDeTwitch(){
 
   if(error){
     setStatus(`Twitch denegó el acceso: ${error}`, 'err');
+    setLuzTwitch('off');
     return;
   }
   if(!accessToken) return;
+
+  setLuzTwitch('conectando');
 
   const expectedState = sessionStorage.getItem(OAUTH_STATE_KEY);
   sessionStorage.removeItem(OAUTH_STATE_KEY);
   if(!state || state !== expectedState){
     setStatus('No se pudo verificar la respuesta de Twitch, inténtalo de nuevo.', 'err');
+    setLuzTwitch('off');
     return;
   }
 
@@ -854,6 +913,7 @@ async function manejarRegresoDeTwitch(){
     const motivo = (e && e.message) ? e.message : String(e);
     console.error('Fallo al verificar la cuenta de Twitch:', e);
     setStatus(`No se pudo verificar la cuenta de Twitch: ${motivo}`, 'err');
+    setLuzTwitch('off');
   }
 }
 
