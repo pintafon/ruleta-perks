@@ -1,0 +1,984 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Ruleta Perks — Votación por chat (valli_oficial)</title>
+<style>
+  html, body { height:100%; background:transparent; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body{
+    min-height:100vh; display:flex; flex-direction:column; justify-content:center; align-items:center;
+    font-family:'Segoe UI',Arial,sans-serif; padding:18px; background:transparent; position:relative;
+  }
+
+  /* Panel de fondo semitransparente detrás de todo el contenido: sin esto,
+     el texto blanco es invisible si se abre la página suelta en una pestaña
+     normal (fondo blanco del navegador) o sobre un fondo claro en OBS. Con
+     este panel se ve siempre, y sigue funcionando igual como overlay
+     transparente sobre la imagen del juego en OBS. */
+  #panel{
+    display:flex; flex-direction:column; align-items:center;
+    background:rgba(0,0,0,.38); border-radius:18px; padding:22px 26px;
+  }
+
+  /* Aviso de error visible en pantalla en vez de una página en blanco si
+     algo falla al cargar (mucho más fácil de diagnosticar que "no se ve nada"). */
+  #errorBanner{
+    display:none; position:fixed; top:0; left:0; right:0; z-index:999;
+    background:#8a0b0b; color:#fff; font:800 13px/1.4 Arial,sans-serif;
+    padding:10px 16px; text-align:center;
+  }
+
+  /* Timer estilo "00:08" */
+  #timer{
+    color:#ffb020; font-size:56px; font-weight:900; text-align:center; line-height:1; margin-bottom:14px;
+    letter-spacing:2px; text-shadow:0 0 14px rgba(255,150,0,.65), 2px 2px 0 #000, -1px -1px 0 #000;
+    min-height:60px;
+  }
+
+  /* ---- Cartas (con volteo 3D: portada = letra, dorso = perks revelados) ---- */
+  .cartas{ display:flex; gap:14px; flex-wrap:wrap; justify-content:center; margin-bottom:18px; }
+
+  .perk-card{
+    width:150px; height:220px; position:relative; cursor:pointer;
+    transition:transform .25s ease; perspective:1000px;
+  }
+  .perk-card:hover{ transform:translateY(-3px); }
+  .perk-card-inner{
+    position:relative; width:100%; height:100%; transform-style:preserve-3d;
+    transition:transform .6s ease; border-radius:8px;
+    box-shadow:0 0 0 2px #000, 0 6px 14px rgba(0,0,0,.55);
+  }
+  .perk-card.girada .perk-card-inner{ transform:rotateY(180deg); }
+
+  .perk-face{
+    position:absolute; inset:0; border-radius:8px; overflow:hidden;
+    backface-visibility:hidden; -webkit-backface-visibility:hidden; background:#0a0a0a;
+  }
+  .perk-front{ transform:rotateY(0deg); z-index:2; }
+  .perk-back{ transform:rotateY(180deg); z-index:1; }
+  .perk-face img.bg{
+    position:absolute; inset:0; width:100%; height:100%; object-fit:cover; filter:brightness(.82) saturate(1.05);
+  }
+  .perk-front::before{
+    content:''; position:absolute; inset:0;
+    background:linear-gradient(180deg, rgba(0,0,0,.55) 0%, rgba(0,0,0,0) 30%, rgba(0,0,0,0) 65%, rgba(0,0,0,.55) 100%);
+    pointer-events:none;
+  }
+  .perk-front .corner{
+    position:absolute; font-weight:900; font-size:15px; color:#fff; z-index:3;
+    text-shadow:1px 1px 0 #000,-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000;
+  }
+  .perk-front .corner.tr{ top:6px; right:8px; }
+  .perk-front .corner.bl{ bottom:6px; left:8px; }
+  .perk-front .icon-tl{ position:absolute; top:6px; left:8px; font-size:14px; color:#c8102e; z-index:3; text-shadow:1px 1px 0 #000; }
+  .perk-front .letter{
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    font-size:90px; font-weight:900; color:#fff; z-index:2;
+    text-shadow:0 0 14px rgba(0,0,0,.9), 3px 3px 0 #000, -2px -2px 0 #000;
+  }
+  .perk-card .winner-tag{
+    position:absolute; bottom:-24px; left:50%; transform:translateX(-50%); z-index:6;
+    background:rgba(0,0,0,.75); color:#ffd700; font-weight:900; font-size:11px; letter-spacing:1px;
+    padding:3px 8px; border-radius:10px; display:none; border:1px solid #ffd700; white-space:nowrap;
+  }
+  .perk-card.winner{
+    z-index:5;
+  }
+  .perk-card.winner .perk-card-inner{
+    box-shadow:0 0 0 3px #ffd700, 0 0 18px #ffd700, 0 0 34px #ffcc00;
+  }
+  .perk-card.winner .winner-tag{ display:block; }
+
+  /* ---- Panel de resultados ---- */
+  .resultados{ display:flex; align-items:center; gap:10px; }
+  .resultados .chevron{ color:#fff; font-size:26px; font-weight:900; text-shadow:1px 1px 0 #000; opacity:.85; }
+  .bars{ display:flex; flex-direction:column; gap:7px; width:420px; max-width:88vw; }
+  .bar-row{ display:flex; align-items:center; gap:8px; }
+  .bar-row .letter{ width:16px; color:#fff; font-weight:800; font-size:14px; text-shadow:1px 1px 0 #000; }
+  .bar-track{ flex:1; height:13px; background:rgba(255,255,255,.16); border-radius:7px; overflow:hidden; }
+  .bar-fill{ height:100%; width:0%; border-radius:7px 0 0 7px; background:linear-gradient(90deg,#3ddc84,#c7e34d,#ffcf40); transition:width .4s ease; }
+  .bar-row .count{ width:78px; text-align:right; color:#fff; font-weight:700; font-size:13px; text-shadow:1px 1px 0 #000; }
+  .manual-btns{ display:none; gap:3px; }
+  body.modo-manual .manual-btns{ display:flex; }
+  .manual-btns button{
+    width:20px; height:20px; border-radius:4px; background:#222; color:#fff; border:1px solid #666;
+    font-weight:900; font-size:12px; cursor:pointer; line-height:1; padding:0;
+  }
+  .manual-btns button:hover{ background:#3a3a3a; }
+
+  /* ---- Stats ---- */
+  .stats-line{ text-align:center; color:#fff; margin-top:12px; font-size:13px; text-shadow:1px 1px 0 #000; }
+  .stats-line b{ color:#ffe14d; }
+  .stats-sep{ color:#888; margin:0 8px; }
+  .rule-line{ text-align:center; color:#9a9a9a; font-size:10.5px; margin-top:3px; letter-spacing:.3px; text-shadow:1px 1px 0 #000; }
+
+  /* ---- EN VIVO ---- */
+  #envivoBtn{
+    margin:14px auto 0; display:flex; align-items:center; gap:8px; width:fit-content;
+    padding:7px 22px; border-radius:20px; background:rgba(0,0,0,.55); border:1px solid rgba(255,255,255,.35);
+    color:#fff; font-weight:900; letter-spacing:1px; font-size:13px; cursor:pointer; user-select:none;
+  }
+  #envivoBtn .dot{ width:9px; height:9px; border-radius:50%; background:#555; }
+  #envivoBtn.activo{ background:rgba(163,0,0,.85); border-color:#ff4d4d; }
+  #envivoBtn.activo .dot{ background:#ff4d4d; box-shadow:0 0 8px #ff4d4d; animation:pulse 1s infinite; }
+  #envivoBtn.deshabilitado{ opacity:.4; cursor:not-allowed; }
+  @keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:.3;} }
+
+  /* ---- Modo Chat / Modo Manual ---- */
+  .modo-tabs{ position:fixed; left:14px; bottom:14px; display:flex; border-radius:8px; overflow:hidden; border:1px solid rgba(255,255,255,.3); z-index:20; }
+  .modo-tab{ padding:8px 14px; background:rgba(0,0,0,.55); color:#bbb; font-weight:800; font-size:11px; letter-spacing:.5px; cursor:pointer; }
+  .modo-tab.active{ background:#333; color:#fff; }
+
+  /* ---- Controles del streamer (todo detrás del engranaje de ajustes) ----
+     Más pequeño y más pegado a la esquina para que el recorte en OBS
+     (filtro Recortar/Pad sobre la fuente) necesite tapar el mínimo posible. */
+  .stream-controls{ position:fixed; right:8px; top:8px; z-index:20; display:flex; align-items:center; gap:6px; }
+  .icon-btn{
+    width:24px; height:24px; border-radius:6px; background:rgba(0,0,0,.55); border:1px solid rgba(255,255,255,.3);
+    color:#fff; font-size:12px; display:flex; align-items:center; justify-content:center; cursor:pointer;
+  }
+  .icon-btn.danger{ background:rgba(138,11,11,.85); border-color:#ff5c5c; }
+
+  /* Luz de estado de Twitch: visible siempre fuera del panel de Ajustes, para
+     saber de un vistazo (incluso en directo, sin abrir nada) si la cuenta
+     sigue vinculada. Gris = sin vincular, ámbar parpadeante = conectando,
+     verde = conectado y escuchando el chat. */
+  .twitch-light{
+    width:12px; height:12px; border-radius:50%; background:#555; border:1px solid rgba(255,255,255,.35);
+    box-shadow:0 0 4px rgba(0,0,0,.6); flex:0 0 auto; cursor:default;
+  }
+  .twitch-light.conectando{ background:#e6b400; box-shadow:0 0 8px #e6b400; animation:pulse 1s infinite; }
+  .twitch-light.on{ background:#2ecc71; box-shadow:0 0 8px #2ecc71; }
+  .twitch-light.off{ background:#555; box-shadow:none; }
+
+  /* Panel desplegable único: tiempo, vínculo con Twitch y reinicio forzado */
+  .config-control{
+    display:none; flex-direction:column; gap:12px; position:absolute; right:0; top:32px; z-index:25;
+    width:250px; background:rgba(10,10,10,.94); border:1px solid rgba(255,255,255,.3); border-radius:10px; padding:14px;
+  }
+  .config-control.show{ display:flex; }
+  .config-section{ display:flex; flex-direction:column; gap:6px; }
+  .config-section .sec-title{ color:#999; font-size:10.5px; font-weight:800; letter-spacing:.5px; text-transform:uppercase; }
+  .config-row{ display:flex; gap:8px; align-items:center; }
+  .config-control label{ color:#fff; font-size:12px; font-weight:700; }
+  .config-control input[type="number"]{
+    width:56px; background:#1a1a1a; border:1px solid #444; border-radius:6px; color:#fff; font-weight:900;
+    font-size:14px; text-align:center; outline:none; height:32px;
+  }
+  .config-control input[type="text"],
+  .config-control input[type="password"]{
+    flex:1; height:32px; border-radius:6px; border:1px solid #444; background:#1a1a1a; color:#fff;
+    padding:0 8px; font-size:12px; outline:none;
+  }
+
+  /* ---- Campo del Client ID / token, oculto por defecto con "ojo alado" ---- */
+  .token-field{ position:relative; display:flex; align-items:center; }
+  .token-field input{ width:100%; padding-right:30px !important; letter-spacing:1px; }
+  .eye-toggle{
+    position:absolute; right:5px; top:50%; transform:translateY(-50%);
+    width:22px; height:22px; border:none; background:transparent; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; padding:0; opacity:.75;
+  }
+  .eye-toggle:hover{ opacity:1; }
+  .eye-toggle svg{ width:16px; height:16px; }
+  .eye-toggle .wing{ fill:#9fd8ff; }
+  .eye-toggle .lid{ display:none; }
+  .eye-toggle.open .lid{ display:block; }
+  .eye-toggle.open .pupil{ display:none; }
+  .apply-btn{ height:32px; padding:0 12px; border-radius:6px; background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.3); color:#fff; font-weight:800; font-size:12px; cursor:pointer; }
+  .config-control hr{ border:none; border-top:1px solid rgba(255,255,255,.15); }
+
+  .session-btn{
+    height:34px; padding:0 14px; border-radius:6px; background:#2c7a3f; border:1px solid #3ddc84;
+    color:#fff; font-weight:800; font-size:12px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:6px; width:100%;
+  }
+  .session-btn .dot{ width:8px; height:8px; border-radius:50%; background:rgba(255,255,255,.6); }
+  .session-btn.conectado{ background:rgba(138,11,11,.85); border-color:#ff5c5c; }
+  .session-btn.conectado .dot{ background:#ff9a9a; }
+  .session-status{ color:#bbb; font-size:11px; line-height:1.4; }
+  .session-status.ok{ color:#3ddc84; }
+  .session-status.err{ color:#ff6b6b; }
+  .help-small{ color:#777; font-size:10px; line-height:1.4; }
+  .help-small a{ color:#6cb4ff; }
+
+  .reset-btn-full{
+    height:32px; border-radius:6px; background:rgba(138,11,11,.85); border:1px solid #ff5c5c; color:#fff;
+    font-weight:800; font-size:12px; cursor:pointer;
+  }
+
+  @media (max-width:820px){
+    #timer{ font-size:42px; }
+    .perk-card{ width:110px; height:165px; }
+    .perk-front .letter{ font-size:60px; }
+    .bars{ width:300px; }
+    .stream-controls{ position:static; margin-top:10px; display:flex; justify-content:center; }
+    .config-control{ right:auto; left:50%; transform:translateX(-50%); }
+  }
+</style>
+</head>
+<body>
+
+<div id="errorBanner"></div>
+
+<div id="panel">
+
+<div id="timer">00:00</div>
+
+<div class="cartas" id="cartas"></div>
+
+<div class="resultados">
+  <div class="chevron">&gt;</div>
+  <div class="bars" id="bars"></div>
+</div>
+
+<div class="stats-line">
+  MENSAJES DETECTADOS: <b id="mensajesDetectados">0</b><span class="stats-sep">|</span>VOTOS ÚNICOS: <b id="votosUnicos">0</b>
+</div>
+<div class="rule-line" id="ruleLine">VOTO ÚNICO - TU ÚLTIMA LETRA REEMPLAZA LA ANTERIOR</div>
+
+<button id="envivoBtn"><span class="dot"></span><span class="text">EN VIVO</span></button>
+
+<div class="modo-tabs">
+  <div class="modo-tab active" id="tabChat">MODO CHAT</div>
+  <div class="modo-tab" id="tabManual">MODO MANUAL</div>
+</div>
+
+</div><!-- /#panel -->
+
+<div class="stream-controls">
+  <span class="twitch-light off" id="twitchLight" title="Twitch: no vinculado"></span>
+  <button class="icon-btn" id="gear" title="Ajustes">⚙️</button>
+
+  <div class="config-control" id="configControls">
+
+    <div class="config-section">
+      <div class="sec-title">Tiempo de votación</div>
+      <div class="config-row">
+        <label for="segundos">Segundos:</label>
+        <input type="number" id="segundos" value="30" min="3">
+        <button class="apply-btn" id="applyTimeBtn">Aplicar</button>
+      </div>
+    </div>
+
+    <hr>
+
+    <div class="config-section">
+      <div class="sec-title">Cuenta de Twitch</div>
+      <button class="session-btn" id="sessionBtn"><span class="dot"></span><span class="text">Vincular con Twitch</span></button>
+      <div class="session-status" id="sessionStatus">No conectado</div>
+      <div class="help-small" id="clientIdHelp">
+        La primera vez, pega aquí el <b>Client ID</b> de tu app de Twitch (se crea gratis en
+        <a href="https://dev.twitch.tv/console/apps/create" target="_blank" rel="noopener">dev.twitch.tv/console</a>,
+        tipo "Chat Bot", con esta URL exacta como Redirect URI: <span id="redirectUriHint"></span>).
+        Luego solo tienes que pulsar el botón y conceder permisos.
+      </div>
+      <div class="token-field">
+        <input type="password" id="clientIdInput" autocomplete="off" placeholder="Client ID de tu app de Twitch">
+        <button type="button" class="eye-toggle" id="toggleTokenBtn" title="Mostrar/ocultar">
+          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path class="wing" d="M1 12c2-2.5 4-3.5 6-3.8 -1 1.2-1 2.6 0 3.8 -2-.3-4-1.3-6 -3.8z" transform="translate(0,0)"></path>
+            <path class="wing" d="M23 12c-2-2.5-4-3.5-6-3.8 1 1.2 1 2.6 0 3.8 2-.3 4-1.3 6-3.8z"></path>
+            <path fill="#fff" d="M12 6.5c-4 0-7.3 2.3-9 5.5 1.7 3.2 5 5.5 9 5.5s7.3-2.3 9-5.5c-1.7-3.2-5-5.5-9-5.5z" opacity="0.85"></path>
+            <circle class="pupil" cx="12" cy="12" r="2.6" fill="#0a0a0a"></circle>
+            <path class="lid" d="M4 12c2.5 2.6 5.3 4 8 4s5.5-1.4 8-4" stroke="#0a0a0a" stroke-width="1.6" fill="none" stroke-linecap="round"></path>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <hr>
+
+    <div class="config-section">
+      <div class="sec-title">Emergencia</div>
+      <button class="reset-btn-full" id="resetForzado" title="Reinicio forzado: usar solo si la app se cuelga">🛑 Reinicio forzado</button>
+    </div>
+
+  </div>
+</div>
+
+<!-- Aviso de error global visible en pantalla: si CUALQUIER cosa del script
+     de abajo lanza una excepción, ya no queda una página en blanco sin
+     explicación — se muestra el motivo arriba en rojo. -->
+<script>
+  window.addEventListener('error', function(ev){
+    const b = document.getElementById('errorBanner');
+    if(!b) return;
+    b.style.display = 'block';
+    b.textContent = 'Error cargando la página: ' + (ev.message || ev.error || 'error desconocido') +
+      (ev.filename ? ' (' + ev.filename.split('/').pop() + ':' + ev.lineno + ')' : '');
+  });
+</script>
+
+<!-- TMI (twitch chat): se intenta primero una copia LOCAL (tmi.min.js en la
+     misma carpeta del repo) para no depender de CDNs externos que bloquean
+     Brave/uBlock/ciertas redes. Si no existe el archivo local, cae en cascada
+     a unpkg → jsdelivr → cdnjs. -->
+<script>
+  function cargarTmiRespaldo3(){
+    if(window.tmi) return;
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/tmi.js/1.8.5/tmi.min.js';
+    document.head.appendChild(s);
+  }
+  function cargarTmiRespaldo2(){
+    if(window.tmi) return;
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/tmi.js@1.8.5/dist/tmi.min.js';
+    s.onerror = cargarTmiRespaldo3;
+    document.head.appendChild(s);
+  }
+  function cargarTmiRespaldo(){
+    if(window.tmi) return;
+    const s = document.createElement('script');
+    s.src = 'https://unpkg.com/tmi.js@latest/dist/tmi.min.js';
+    s.onerror = cargarTmiRespaldo2;
+    document.head.appendChild(s);
+  }
+</script>
+<script src="tmi.min.js" onerror="cargarTmiRespaldo()" defer></script>
+<script>
+/* Sesión de Twitch: se pide en cada uso, nunca se guarda en disco/localStorage/cookies.
+   Vive solo en memoria mientras la pestaña está abierta; al cerrar sesión o cerrar/recargar
+   la página se borra por completo. */
+let session = { username:'', oauth:'', channel:'', conectado:false };
+
+/* recursos y estado */
+const letras = ['A','B','C','D','E'];
+const premiosOriginales = ["1 Perk","2 Perks","3 Perks","4 Perks","0 Perks"];
+let premios = [...premiosOriginales];
+
+let votesByUser = {};                       // modo chat: { usuario: 'A' }
+let manualVotes = {A:0,B:0,C:0,D:0,E:0};     // modo manual: contadores directos
+let votingMode = 'chat';                     // 'chat' | 'manual'
+let mensajesDetectados = 0;
+let contadorActivo = false;
+let intervalo = null;
+let twitchClient = null;
+let accionEnCurso = false;   // evita solapar inicios/paradas al pulsar EN VIVO muy rápido
+let manualWinnerSet = false; // true en cuanto hay un ganador (auto o manual) para esta tanda de cartas
+
+const cartasEl = document.getElementById('cartas');
+const barsEl = document.getElementById('bars');
+const timerEl = document.getElementById('timer');
+const envivoBtn = document.getElementById('envivoBtn');
+const gearBtn = document.getElementById('gear');
+const applyBtn = document.getElementById('applyTimeBtn');
+const configControls = document.getElementById('configControls');
+const segundosInput = document.getElementById('segundos');
+const resetForzadoBtn = document.getElementById('resetForzado');
+const tabChat = document.getElementById('tabChat');
+const tabManual = document.getElementById('tabManual');
+const ruleLineEl = document.getElementById('ruleLine');
+const mensajesEl = document.getElementById('mensajesDetectados');
+const votosUnicosEl = document.getElementById('votosUnicos');
+
+/* ---- Crear cartas (front = letra para votar, back = perks revelados) ---- */
+const reversosPool = [
+  'Trasera perk/A_back.png',
+  'Trasera perk/B_back.png',
+  'Trasera perk/C_back.png',
+  'Trasera perk/D_back.png',
+  'Trasera perk/E_back.png'
+];
+
+function mezclarArray(arr){ for(let i=arr.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [arr[i],arr[j]]=[arr[j],arr[i]]; } }
+
+function crearCartas(){
+  cartasEl.innerHTML = '';
+  letras.forEach(letra=>{
+    const card = document.createElement('div');
+    card.className = 'perk-card';
+    card.dataset.letra = letra;
+    card.innerHTML = `
+      <div class="perk-card-inner">
+        <div class="perk-face perk-front">
+          <img class="bg" src="${encodeURI('perk/'+letra+'.png')}" alt="" onerror="this.style.display='none'">
+          <div class="icon-tl">☠</div>
+          <div class="corner tr">K</div>
+          <div class="letter">${letra}</div>
+          <div class="corner bl">K</div>
+        </div>
+        <div class="perk-face perk-back">
+          <img class="bg" alt="" onerror="this.style.display='none'">
+        </div>
+      </div>
+      <div class="winner-tag">GANADOR</div>
+    `;
+    card.addEventListener('click', async ()=>{
+      const abiertaAntes = card.classList.contains('girada'); // ya estaba abierta -> se va a cerrar
+      const eraGanadora = card.classList.contains('winner');
+
+      if(abiertaAntes && eraGanadora && !contadorActivo){
+        // Se cierra a mano la carta ganadora: NO la giramos aquí a mano.
+        // Dejamos que reiniciarSorteoManual (closeAllCardsAndWait) sea quien
+        // quite 'girada' de todas las cartas abiertas y espere a que termine
+        // el giro por completo antes de barajar las traseras — así nunca se
+        // ve el cambio de imagen mientras la carta todavía está girando.
+        await reiniciarSorteoManual();
+        return;
+      }
+
+      card.classList.toggle('girada');
+      if(!abiertaAntes && !contadorActivo && !manualWinnerSet){
+        // Se abre por primera vez (sin votación en marcha): esta carta gana.
+        manualWinnerSet = true;
+        marcarGanadorManual(card.dataset.letra);
+      }
+    });
+    cartasEl.appendChild(card);
+  });
+}
+
+/* Asigna traseras al azar entre las 5 cartas, para que no se sepa qué letra
+   esconde qué número de perks hasta que se voltee. */
+function asignarImagenes(){
+  const cards = Array.from(document.querySelectorAll('.perk-card'));
+  const pool = reversosPool.slice();
+  mezclarArray(pool);
+  cards.forEach((card,i)=>{
+    const backImg = card.querySelector('.perk-back img.bg');
+    if(backImg){
+      backImg.style.display = '';
+      backImg.src = pool[i] ? encodeURI(pool[i]) : '';
+    }
+  });
+}
+
+/* Cierra todas las cartas (sin trampa: espera a que termine la animación de
+   volteo antes de barajar las traseras, para que no se vea el cambio). */
+function closeAllCardsAndWait(timeoutMs = 700){
+  const cards = Array.from(document.querySelectorAll('.perk-card'));
+  const toWait = [];
+  cards.forEach(card=>{
+    const inner = card.querySelector('.perk-card-inner');
+    if(card.classList.contains('girada')){
+      toWait.push(new Promise(resolve=>{
+        const onEnd = (ev)=>{
+          if(ev.propertyName !== 'transform') return;
+          inner.removeEventListener('transitionend', onEnd);
+          resolve();
+        };
+        inner.addEventListener('transitionend', onEnd);
+      }));
+    }
+    card.classList.remove('girada','winner');
+  });
+  if(toWait.length === 0) return Promise.resolve();
+  return Promise.race([ Promise.all(toWait), new Promise(res => setTimeout(res, timeoutMs)) ]);
+}
+
+
+/* ---- Crear filas de barras ---- */
+function crearBarras(){
+  barsEl.innerHTML = '';
+  letras.forEach(l=>{
+    const row = document.createElement('div');
+    row.className = 'bar-row';
+    row.innerHTML = `
+      <div class="letter">${l}</div>
+      <div class="bar-track"><div class="bar-fill" data-letra="${l}"></div></div>
+      <div class="count" data-letra="${l}">0(0%)</div>
+      <div class="manual-btns">
+        <button data-op="menos" data-letra="${l}">−</button>
+        <button data-op="mas" data-letra="${l}">+</button>
+      </div>
+    `;
+    barsEl.appendChild(row);
+  });
+  barsEl.querySelectorAll('.manual-btns button').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const l = btn.dataset.letra;
+      const delta = btn.dataset.op === 'mas' ? 1 : -1;
+      manualVote(l, delta);
+    });
+  });
+}
+
+/* ---- Conteo y votos ---- */
+function computeCounts(){
+  if(votingMode === 'manual') return {...manualVotes};
+  const counts = {A:0,B:0,C:0,D:0,E:0};
+  Object.values(votesByUser).forEach(v=>{ v=(''+v).toUpperCase(); if(counts[v]!==undefined) counts[v]++; });
+  return counts;
+}
+
+function registerVote(user, letter){
+  if(!contadorActivo || votingMode!=='chat') return false;
+  user = (user||'').toLowerCase();
+  const L = (''+letter).toUpperCase();
+  if(!letras.includes(L)) return false;
+  votesByUser[user] = L;
+  updateDisplay();
+  return true;
+}
+
+function manualVote(letter, delta){
+  if(!letras.includes(letter)) return;
+  manualVotes[letter] = Math.max(0, (manualVotes[letter]||0) + delta);
+  updateDisplay();
+}
+
+function updateDisplay(){
+  const counts = computeCounts();
+  const total = Object.values(counts).reduce((a,b)=>a+b,0);
+  letras.forEach(l=>{
+    const pct = total > 0 ? Math.round((counts[l]/total)*100) : 0;
+    const fill = barsEl.querySelector(`.bar-fill[data-letra="${l}"]`);
+    const countEl = barsEl.querySelector(`.count[data-letra="${l}"]`);
+    if(fill) fill.style.width = pct + '%';
+    if(countEl) countEl.textContent = `${counts[l]||0}(${pct}%)`;
+  });
+  mensajesEl.textContent = mensajesDetectados;
+  votosUnicosEl.textContent = votingMode === 'chat' ? Object.keys(votesByUser).length : total;
+}
+
+/* ---- Ganador ---- */
+function pickWinnerByVotes(){
+  const counts = computeCounts();
+  const max = Math.max(...Object.values(counts));
+  const cands = letras.filter(l => counts[l] === max);
+  if(max === 0 || cands.length === 0) return letras[Math.floor(Math.random()*letras.length)];
+  return cands[Math.floor(Math.random()*cands.length)];
+}
+function highlightWinner(letter){
+  document.querySelectorAll('.perk-card').forEach(c=>c.classList.remove('winner','girada'));
+  const card = document.querySelector(`.perk-card[data-letra="${letter}"]`);
+  if(card) card.classList.add('winner','girada');
+}
+function clearWinner(){
+  document.querySelectorAll('.perk-card').forEach(c=>c.classList.remove('winner'));
+}
+/* Marca como ganadora la carta que se acaba de abrir a mano, sin tocar el
+   estado (abierta/cerrada) del resto de cartas. */
+function marcarGanadorManual(letter){
+  document.querySelectorAll('.perk-card').forEach(c=>c.classList.remove('winner'));
+  const card = document.querySelector(`.perk-card[data-letra="${letter}"]`);
+  if(card) card.classList.add('winner');
+  announceWinner(letter);
+}
+/* Al cerrar a mano la carta ganadora: cierra todas, baraja las traseras de
+   nuevo y deja todo listo para un nuevo sorteo manual. No toca el contador
+   ni el botón EN VIVO, porque esto es puramente manual. */
+async function reiniciarSorteoManual(){
+  await closeAllCardsAndWait(700);
+  asignarImagenes();
+  manualWinnerSet = false;
+}
+function announceWinner(letter){
+  const idx = letras.indexOf(letter);
+  const prize = premios[idx] || '';
+  const text = prize ? `Carta ganadora: ${letter} — ${prize}.` : `Carta ganadora: ${letter}.`;
+  if(twitchClient && session.conectado){
+    const ch = session.channel.startsWith('#') ? session.channel : `#${session.channel}`;
+    twitchClient.say(ch, text).catch(()=>{});
+  } else console.log(text);
+}
+
+/* ---- Formato de tiempo MM:SS ---- */
+function formatTime(s){
+  s = Math.max(0, s);
+  const m = Math.floor(s/60);
+  const sec = s%60;
+  return String(m).padStart(2,'0') + ':' + String(sec).padStart(2,'0');
+}
+
+/* ---- Control de votación: un solo botón EN VIVO ----
+   "contadorActivo" se pone a true de inmediato (antes de esperar animaciones)
+   para que ningún otro inicio pueda colarse mientras las cartas se están
+   cerrando. Además, todo clic en el botón pasa por "accionEnCurso": mientras
+   una llamada esté en marcha (iniciar o parar), se ignoran los clics
+   siguientes hasta que termine del todo. Así, aunque se pulse EN VIVO muy
+   rápido varias veces seguidas, nunca quedan dos cuentas atrás corriendo a
+   la vez ni gnadores repitiéndose solos. */
+async function empezarCuentaAtras(segundos){
+  if(contadorActivo) return;
+  contadorActivo = true;
+  if(intervalo){ clearInterval(intervalo); intervalo = null; }
+  votesByUser = {}; manualVotes = {A:0,B:0,C:0,D:0,E:0}; mensajesDetectados = 0;
+  manualWinnerSet = false;
+
+  envivoBtn.classList.add('activo');
+  envivoBtn.querySelector('.text').textContent = 'PARAR';
+  actualizarEstadoBotonEnVivo();
+
+  // cerrar todas las cartas (esperando a que termine la animación) y barajar las traseras
+  await closeAllCardsAndWait(700);
+  asignarImagenes();
+  updateDisplay();
+
+  let restantes = segundos;
+  timerEl.textContent = formatTime(restantes);
+
+  intervalo = setInterval(()=>{
+    restantes--;
+    timerEl.textContent = formatTime(restantes);
+    if(restantes <= 0){
+      clearInterval(intervalo); intervalo = null;
+      contadorActivo = false;
+      envivoBtn.classList.remove('activo');
+      envivoBtn.querySelector('.text').textContent = 'EN VIVO';
+      actualizarEstadoBotonEnVivo();
+
+      // Solo se revela una carta si de verdad hubo votos. Modo chat sin
+      // ningún voto recibido no debe voltear nada por su cuenta: se deja
+      // para revelarla a mano.
+      const counts = computeCounts();
+      const totalVotos = Object.values(counts).reduce((a,b)=>a+b,0);
+      if(totalVotos > 0){
+        const winner = pickWinnerByVotes();
+        highlightWinner(winner);
+        announceWinner(winner);
+        manualWinnerSet = true;
+      } else {
+        manualWinnerSet = false;
+        if(twitchClient && session.conectado){
+          const ch = session.channel.startsWith('#') ? session.channel : `#${session.channel}`;
+          twitchClient.say(ch, 'Tiempo terminado sin votos, ninguna carta revelada.').catch(()=>{});
+        }
+      }
+    }
+  }, 1000);
+}
+
+async function pararYReiniciar(){
+  if(intervalo){ clearInterval(intervalo); intervalo = null; }
+  contadorActivo = false;
+  votesByUser = {}; manualVotes = {A:0,B:0,C:0,D:0,E:0}; mensajesDetectados = 0;
+  manualWinnerSet = false;
+
+  await closeAllCardsAndWait(700);
+  asignarImagenes();
+  updateDisplay();
+
+  timerEl.textContent = '00:00';
+  envivoBtn.classList.remove('activo');
+  envivoBtn.querySelector('.text').textContent = 'EN VIVO';
+  actualizarEstadoBotonEnVivo();
+  if(twitchClient && session.conectado){
+    const ch = session.channel.startsWith('#') ? session.channel : `#${session.channel}`;
+    twitchClient.say(ch, 'Votación detenida y reiniciada.').catch(()=>{});
+  }
+}
+
+envivoBtn.addEventListener('click', async ()=>{
+  if(accionEnCurso) return;
+  // EN VIVO (cuenta atrás) solo tiene sentido en MODO CHAT: en MODO MANUAL
+  // el sorteo se hace enteramente girando las cartas a mano, así que si no
+  // hay ya una cuenta corriendo, el botón no hace nada.
+  if(!contadorActivo && votingMode === 'manual') return;
+  accionEnCurso = true;
+  try{
+    if(!contadorActivo){
+      const t = parseInt(segundosInput.value,10);
+      if(isNaN(t) || t < 3) return;
+      await empezarCuentaAtras(t);
+    } else {
+      await pararYReiniciar();
+    }
+  } finally {
+    accionEnCurso = false;
+  }
+});
+
+/* ---- Ajustes ---- */
+gearBtn.addEventListener('click', ()=>{
+  const isShown = configControls.classList.toggle('show');
+  if(isShown) segundosInput.focus();
+});
+applyBtn.addEventListener('click', ()=>{
+  const v = parseInt(segundosInput.value,10);
+  if(isNaN(v) || v < 3){
+    segundosInput.style.borderBottom = '1px solid red';
+    setTimeout(()=> segundosInput.style.borderBottom = 'none', 700);
+    return;
+  }
+  configControls.classList.remove('show');
+});
+
+/* ---- Reset forzado: recarga toda la app ---- */
+resetForzadoBtn.addEventListener('click', ()=>{
+  window.location.reload();
+});
+
+/* ---- Modo Chat / Modo Manual ---- */
+async function setVotingMode(mode){
+  if(accionEnCurso) return; // ya hay un inicio/parada en marcha, no interferir
+  // Si se pasa a MODO MANUAL mientras hay una cuenta atrás corriendo (venía
+  // de MODO CHAT), se cancela igual que si se hubiera pulsado "parar": no
+  // tiene sentido dejarla corriendo escondida detrás de la pestaña manual.
+  if(mode === 'manual' && contadorActivo){
+    accionEnCurso = true;
+    try{
+      await pararYReiniciar();
+    } finally {
+      accionEnCurso = false;
+    }
+  }
+
+  votingMode = mode;
+  tabChat.classList.toggle('active', mode === 'chat');
+  tabManual.classList.toggle('active', mode === 'manual');
+  document.body.classList.toggle('modo-manual', mode === 'manual');
+  ruleLineEl.textContent = mode === 'chat'
+    ? 'VOTO ÚNICO - TU ÚLTIMA LETRA REEMPLAZA LA ANTERIOR'
+    : 'MODO MANUAL - SUMA VOTOS CON LOS BOTONES + Y − (gira las cartas a mano)';
+  // En modo manual, EN VIVO no aplica salvo que ya hubiera una cuenta corriendo
+  // (para poder pararla si venías de modo chat). Se atenúa como pista visual.
+  actualizarEstadoBotonEnVivo();
+  updateDisplay();
+}
+tabChat.addEventListener('click', ()=> setVotingMode('chat'));
+tabManual.addEventListener('click', ()=> setVotingMode('manual'));
+
+/* Mantiene el aspecto atenuado del botón EN VIVO sincronizado: solo se
+   puede iniciar una cuenta atrás en modo chat; en modo manual solo se
+   habilita mientras ya hay una en marcha (para poder pararla). */
+function actualizarEstadoBotonEnVivo(){
+  const bloquearBoton = votingMode === 'manual' && !contadorActivo;
+  envivoBtn.classList.toggle('deshabilitado', bloquearBoton);
+}
+
+/* ---- Init ---- */
+crearCartas();
+asignarImagenes();
+crearBarras();
+updateDisplay();
+actualizarEstadoBotonEnVivo();
+
+/* ---- Sesión de Twitch: vinculación con un solo botón (OAuth Implicit Grant) ----
+   El token OAuth se obtiene automáticamente al pulsar "Vincular con Twitch": la app
+   redirige a Twitch, el streamer concede permisos y Twitch devuelve el token en la URL.
+   No se guarda en disco ni en localStorage; solo vive en memoria mientras la pestaña
+   está abierta. Lo único que se recuerda para comodidad es el Client ID (dato público,
+   no es una credencial) para no tener que pegarlo cada vez. */
+
+const sessionBtn = document.getElementById('sessionBtn');
+const sessionStatus = document.getElementById('sessionStatus');
+const clientIdInput = document.getElementById('clientIdInput');
+const redirectUriHint = document.getElementById('redirectUriHint');
+
+const TWITCH_SCOPES = 'chat:read chat:edit';
+const CLIENT_ID_KEY = 'ruletaPerks_twitchClientId';
+const OAUTH_STATE_KEY = 'ruletaPerks_oauthState';
+
+function redirectUri(){
+  // La misma URL donde vive esta página, sin query ni hash.
+  return location.origin + location.pathname;
+}
+redirectUriHint.textContent = redirectUri();
+
+// El Client ID no es secreto (viaja siempre en la URL de autorización), así que se
+// puede recordar en este navegador para que el botón funcione con un solo clic la
+// próxima vez. El token de acceso, en cambio, NUNCA se guarda.
+clientIdInput.value = localStorage.getItem(CLIENT_ID_KEY) || '';
+clientIdInput.addEventListener('change', ()=>{
+  localStorage.setItem(CLIENT_ID_KEY, clientIdInput.value.trim());
+});
+
+/* Ojo alado: por defecto el campo está oculto (tipo password). Al pulsar
+   el ojo se revela como texto normal; al volver a pulsar, se vuelve a
+   ocultar. Así en directo, con el panel de ajustes cerrado o el ojo sin
+   pulsar, nadie puede leer el Client ID/token aunque se vea el recorte. */
+const toggleTokenBtn = document.getElementById('toggleTokenBtn');
+toggleTokenBtn.addEventListener('click', ()=>{
+  const oculto = clientIdInput.type === 'password';
+  clientIdInput.type = oculto ? 'text' : 'password';
+  toggleTokenBtn.classList.toggle('open', oculto);
+});
+
+function setStatus(text, kind){
+  sessionStatus.textContent = text;
+  sessionStatus.classList.remove('ok','err');
+  if(kind) sessionStatus.classList.add(kind);
+}
+
+/* Luz exterior de vinculación: se ve siempre, sin abrir Ajustes.
+   estado: 'off' (no vinculado) | 'conectando' | 'on' (conectado). */
+const twitchLight = document.getElementById('twitchLight');
+function setLuzTwitch(estado){
+  twitchLight.classList.remove('off','conectando','on');
+  twitchLight.classList.add(estado);
+  const textos = { off:'Twitch: no vinculado', conectando:'Twitch: conectando…', on:'Twitch: vinculado y escuchando el chat' };
+  twitchLight.title = textos[estado] || '';
+}
+
+sessionBtn.addEventListener('click', ()=>{
+  if(session.conectado){
+    cerrarSesionTwitch();
+    return;
+  }
+  const clientId = clientIdInput.value.trim();
+  if(!clientId){
+    setStatus('Falta el Client ID de tu app de Twitch (ver arriba).', 'err');
+    clientIdInput.focus();
+    return;
+  }
+  localStorage.setItem(CLIENT_ID_KEY, clientId);
+
+  const state = Math.random().toString(36).slice(2) + Date.now().toString(36);
+  sessionStorage.setItem(OAUTH_STATE_KEY, state);
+
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri(),
+    response_type: 'token',
+    scope: TWITCH_SCOPES,
+    state
+  });
+  // Redirige a Twitch: aquí es donde el streamer ve la pantalla oficial de
+  // "obtener permisos de Twitch" y la concede con un clic.
+  window.location.href = `https://id.twitch.tv/oauth2/authorize?${params.toString()}`;
+});
+
+/* Espera a que la librería tmi.js esté disponible, por si tarda en llegar
+   (CDN lento, o cayó al respaldo). Reintenta cada 150ms hasta el timeout. */
+function esperarTmi(timeoutMs){
+  return new Promise((resolve, reject)=>{
+    if(typeof tmi !== 'undefined') return resolve();
+    const inicio = Date.now();
+    const intervaloEspera = setInterval(()=>{
+      if(typeof tmi !== 'undefined'){
+        clearInterval(intervaloEspera);
+        resolve();
+      } else if(Date.now() - inicio > timeoutMs){
+        clearInterval(intervaloEspera);
+        reject(new Error('No se pudo cargar la librería de chat de Twitch (tmi.js). Puede que un bloqueador de anuncios o los "Shields" de Brave estén bloqueando unpkg.com/jsdelivr.net. Desactívalo para esta página y recarga.'));
+      }
+    }, 150);
+  });
+}
+
+async function conectarTwitch(username, oauthToken, channel){
+  try{
+    await esperarTmi(12000);
+    if(twitchClient){ twitchClient.disconnect().catch(()=>{}); twitchClient = null; }
+    twitchClient = new tmi.Client({
+      options:{ debug:false },
+      connection:{ reconnect:true },
+      identity:{ username, password: oauthToken.startsWith('oauth:') ? oauthToken : `oauth:${oauthToken}` },
+      channels: [ channel.startsWith('#') ? channel.slice(1) : channel ]
+    });
+
+    twitchClient.on('message', (ch, tags, message, self)=>{
+      // Nota: antes se ignoraban los mensajes "self" (los que escribe la
+      // propia cuenta vinculada). Eso hacía que, al probar escribiendo tú
+      // mismo A/B/C/D/E en tu chat con la cuenta vinculada, nunca se
+      // contaran. Los anuncios del bot (twitchClient.say) son frases
+      // completas y nunca coinciden con una sola letra, así que no hay
+      // riesgo de que se cuenten solos como voto.
+      const user = (tags.username || tags['display-name'] || '').toLowerCase();
+      if(!user) return;
+      mensajesDetectados++;
+      const msg = (''+message).trim();
+      if(/^[A-Ea-e]$/.test(msg)){
+        registerVote(user, msg.toUpperCase());
+      } else {
+        updateDisplay();
+      }
+    });
+
+    await twitchClient.connect();
+    session = { username, oauth: oauthToken, channel, conectado:true };
+    sessionBtn.classList.add('conectado');
+    sessionBtn.querySelector('.text').textContent = 'Cerrar sesión';
+    setStatus(`Conectado como ${username} · canal #${channel.replace(/^#/,'')}`, 'ok');
+    setLuzTwitch('on');
+  } catch(e){
+    // tmi.js normalmente rechaza con un string ('Login authentication failed',
+    // 'No response from Twitch.', 'closed', etc.) o, más raro, con un Error.
+    // Lo mostramos tal cual para saber si es el token, el scope o la propia
+    // conexión, en vez de un mensaje genérico que no dice nada.
+    const motivo = typeof e === 'string' ? e
+      : (e && e.message) ? e.message
+      : JSON.stringify(e);
+    console.error('Fallo al conectar con el chat de Twitch:', e);
+    setStatus(`No se pudo conectar al chat de Twitch: ${motivo}`, 'err');
+    setLuzTwitch('off');
+    twitchClient = null;
+  }
+}
+
+function cerrarSesionTwitch(){
+  if(twitchClient){ twitchClient.disconnect().catch(()=>{}); twitchClient = null; }
+  // borrado explícito del token en memoria: no queda ningún registro tras cerrar sesión
+  session = { username:'', oauth:'', channel:'', conectado:false };
+  sessionBtn.classList.remove('conectado');
+  sessionBtn.querySelector('.text').textContent = 'Vincular con Twitch';
+  setStatus('No conectado');
+  setLuzTwitch('off');
+}
+
+/* Al volver de Twitch, el token llega en el fragmento de la URL (#access_token=...).
+   Se lee una sola vez, se limpia de la URL inmediatamente y se usa para conectar solo. */
+async function manejarRegresoDeTwitch(){
+  if(!location.hash || location.hash.length < 2) return;
+  const hashParams = new URLSearchParams(location.hash.slice(1));
+  const accessToken = hashParams.get('access_token');
+  const state = hashParams.get('state');
+  const error = hashParams.get('error_description');
+
+  // Limpiar el hash de la URL de inmediato (el token no debe quedar visible ni en el historial)
+  history.replaceState(null, '', redirectUri());
+
+  if(error){
+    setStatus(`Twitch denegó el acceso: ${error}`, 'err');
+    setLuzTwitch('off');
+    return;
+  }
+  if(!accessToken) return;
+
+  setLuzTwitch('conectando');
+
+  const expectedState = sessionStorage.getItem(OAUTH_STATE_KEY);
+  sessionStorage.removeItem(OAUTH_STATE_KEY);
+  if(!state || state !== expectedState){
+    setStatus('No se pudo verificar la respuesta de Twitch, inténtalo de nuevo.', 'err');
+    setLuzTwitch('off');
+    return;
+  }
+
+  const clientId = localStorage.getItem(CLIENT_ID_KEY);
+  setStatus('Verificando cuenta de Twitch…');
+  try{
+    const resp = await fetch('https://api.twitch.tv/helix/users', {
+      headers: { 'Authorization': `Bearer ${accessToken}`, 'Client-Id': clientId }
+    });
+    if(!resp.ok){
+      // La API de Twitch devuelve un JSON con el motivo real (token inválido,
+      // Client ID que no coincide con el token, límite de peticiones, etc.).
+      // Lo leemos y lo mostramos en vez de un "algo falló" genérico.
+      let detalle = `HTTP ${resp.status}`;
+      try{
+        const errJson = await resp.json();
+        if(errJson && errJson.message) detalle = `HTTP ${resp.status} — ${errJson.message}`;
+      } catch(_e){ /* la respuesta no traía JSON, nos quedamos con el HTTP status */ }
+      throw new Error(detalle);
+    }
+    const data = await resp.json();
+    const login = data && data.data && data.data[0] && data.data[0].login;
+    if(!login) throw new Error('Twitch respondió sin datos de usuario (login vacío).');
+    // Por defecto escucha el chat de tu propio canal.
+    await conectarTwitch(login, accessToken, login);
+  } catch(e){
+    const motivo = (e && e.message) ? e.message : String(e);
+    console.error('Fallo al verificar la cuenta de Twitch:', e);
+    setStatus(`No se pudo verificar la cuenta de Twitch: ${motivo}`, 'err');
+    setLuzTwitch('off');
+  }
+}
+
+/* Por seguridad: si se cierra o recarga la pestaña, se corta la sesión y se borra el
+   token de memoria (no hay localStorage/cookies del token de por medio, así que esto ya
+   ocurre solo, pero desconectamos el cliente de Twitch de forma explícita). */
+window.addEventListener('beforeunload', ()=>{
+  if(twitchClient){ try{ twitchClient.disconnect(); }catch(e){} }
+  session = { username:'', oauth:'', channel:'', conectado:false };
+});
+
+manejarRegresoDeTwitch();
+
+</script>
+</body>
+</html>
