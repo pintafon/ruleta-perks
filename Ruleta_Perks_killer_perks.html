@@ -305,17 +305,22 @@ function crearCartas(){
     card.addEventListener('click', async ()=>{
       const abiertaAntes = card.classList.contains('girada'); // ya estaba abierta -> se va a cerrar
       const eraGanadora = card.classList.contains('winner');
-      card.classList.toggle('girada');
 
+      if(abiertaAntes && eraGanadora && !contadorActivo){
+        // Se cierra a mano la carta ganadora: NO la giramos aquí a mano.
+        // Dejamos que reiniciarSorteoManual (closeAllCardsAndWait) sea quien
+        // quite 'girada' de todas las cartas abiertas y espere a que termine
+        // el giro por completo antes de barajar las traseras — así nunca se
+        // ve el cambio de imagen mientras la carta todavía está girando.
+        await reiniciarSorteoManual();
+        return;
+      }
+
+      card.classList.toggle('girada');
       if(!abiertaAntes && !contadorActivo && !manualWinnerSet){
         // Se abre por primera vez (sin votación en marcha): esta carta gana.
         manualWinnerSet = true;
         marcarGanadorManual(card.dataset.letra);
-      } else if(abiertaAntes && eraGanadora && !contadorActivo){
-        // Se cierra a mano la carta ganadora: se barajan todas las traseras
-        // y se prepara un sorteo manual nuevo, sin tocar el contador (esto
-        // es 100% manual, no hace falta ninguna cuenta atrás para ello).
-        await reiniciarSorteoManual();
       }
     });
     cartasEl.appendChild(card);
