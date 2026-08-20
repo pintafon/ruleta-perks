@@ -105,6 +105,7 @@
   #envivoBtn .dot{ width:9px; height:9px; border-radius:50%; background:#555; }
   #envivoBtn.activo{ background:rgba(163,0,0,.85); border-color:#ff4d4d; }
   #envivoBtn.activo .dot{ background:#ff4d4d; box-shadow:0 0 8px #ff4d4d; animation:pulse 1s infinite; }
+  #envivoBtn.deshabilitado{ opacity:.4; cursor:not-allowed; }
   @keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:.3;} }
 
   /* ---- Modo Chat / Modo Manual ---- */
@@ -301,16 +302,20 @@ function crearCartas(){
       </div>
       <div class="winner-tag">GANADOR</div>
     `;
-    card.addEventListener('click', ()=>{
-      const seEstaAbriendo = !card.classList.contains('girada');
+    card.addEventListener('click', async ()=>{
+      const abiertaAntes = card.classList.contains('girada'); // ya estaba abierta -> se va a cerrar
+      const eraGanadora = card.classList.contains('winner');
       card.classList.toggle('girada');
-      // Revelado manual: si no hay una votación en marcha y aún no hay ganador
-      // decidido en esta tanda, la PRIMERA carta que se abre pasa a ser la
-      // ganadora. Las siguientes cartas que se abran solo se ven, no cambian
-      // el ganador hasta el próximo "iniciar" o "parar".
-      if(seEstaAbriendo && !contadorActivo && !manualWinnerSet){
+
+      if(!abiertaAntes && !contadorActivo && !manualWinnerSet){
+        // Se abre por primera vez (sin votación en marcha): esta carta gana.
         manualWinnerSet = true;
         marcarGanadorManual(card.dataset.letra);
+      } else if(abiertaAntes && eraGanadora && !contadorActivo){
+        // Se cierra a mano la carta ganadora: se barajan todas las traseras
+        // y se prepara un sorteo manual nuevo, sin tocar el contador (esto
+        // es 100% manual, no hace falta ninguna cuenta atrás para ello).
+        await reiniciarSorteoManual();
       }
     });
     cartasEl.appendChild(card);
@@ -444,6 +449,14 @@ function marcarGanadorManual(letter){
   if(card) card.classList.add('winner');
   announceWinner(letter);
 }
+/* Al cerrar a mano la carta ganadora: cierra todas, baraja las traseras de
+   nuevo y deja todo listo para un nuevo sorteo manual. No toca el contador
+   ni el botón EN VIVO, porque esto es puramente manual. */
+async function reiniciarSorteoManual(){
+  await closeAllCardsAndWait(700);
+  asignarImagenes();
+  manualWinnerSet = false;
+}
 function announceWinner(letter){
   const idx = letras.indexOf(letter);
   const prize = premios[idx] || '';
@@ -479,6 +492,7 @@ async function empezarCuentaAtras(segundos){
 
   envivoBtn.classList.add('activo');
   envivoBtn.querySelector('.text').textContent = 'PARAR';
+  actualizarEstadoBotonEnVivo();
 
   // cerrar todas las cartas (esperando a que termine la animación) y barajar las traseras
   await closeAllCardsAndWait(700);
@@ -493,13 +507,28 @@ async function empezarCuentaAtras(segundos){
     timerEl.textContent = formatTime(restantes);
     if(restantes <= 0){
       clearInterval(intervalo); intervalo = null;
-      const winner = pickWinnerByVotes();
-      highlightWinner(winner);
-      announceWinner(winner);
-      manualWinnerSet = true;
       contadorActivo = false;
       envivoBtn.classList.remove('activo');
       envivoBtn.querySelector('.text').textContent = 'EN VIVO';
+      actualizarEstadoBotonEnVivo();
+
+      // Solo se revela una carta si de verdad hubo votos. Modo chat sin
+      // ningún voto recibido no debe voltear nada por su cuenta: se deja
+      // para revelarla a mano.
+      const counts = computeCounts();
+      const totalVotos = Object.values(counts).reduce((a,b)=>a+b,0);
+      if(totalVotos > 0){
+        const winner = pickWinnerByVotes();
+        highlightWinner(winner);
+        announceWinner(winner);
+        manualWinnerSet = true;
+      } else {
+        manualWinnerSet = false;
+        if(twitchClient && session.conectado){
+          const ch = session.channel.startsWith('#') ? session.channel : `#${session.channel}`;
+          twitchClient.say(ch, 'Tiempo terminado sin votos, ninguna carta revelada.').catch(()=>{});
+        }
+      }
     }
   }, 1000);
 }
@@ -517,6 +546,7 @@ async function pararYReiniciar(){
   timerEl.textContent = '00:00';
   envivoBtn.classList.remove('activo');
   envivoBtn.querySelector('.text').textContent = 'EN VIVO';
+  actualizarEstadoBotonEnVivo();
   if(twitchClient && session.conectado){
     const ch = session.channel.startsWith('#') ? session.channel : `#${session.channel}`;
     twitchClient.say(ch, 'Votación detenida y reiniciada.').catch(()=>{});
@@ -525,6 +555,10 @@ async function pararYReiniciar(){
 
 envivoBtn.addEventListener('click', async ()=>{
   if(accionEnCurso) return;
+  // EN VIVO (cuenta atrás) solo tiene sentido en MODO CHAT: en MODO MANUAL
+  // el sorteo se hace enteramente girando las cartas a mano, así que si no
+  // hay ya una cuenta corriendo, el botón no hace nada.
+  if(!contadorActivo && votingMode === 'manual') return;
   accionEnCurso = true;
   try{
     if(!contadorActivo){
@@ -567,17 +601,29 @@ function setVotingMode(mode){
   document.body.classList.toggle('modo-manual', mode === 'manual');
   ruleLineEl.textContent = mode === 'chat'
     ? 'VOTO ÚNICO - TU ÚLTIMA LETRA REEMPLAZA LA ANTERIOR'
-    : 'MODO MANUAL - SUMA VOTOS CON LOS BOTONES + Y −';
+    : 'MODO MANUAL - SUMA VOTOS CON LOS BOTONES + Y − (gira las cartas a mano)';
+  // En modo manual, EN VIVO no aplica salvo que ya hubiera una cuenta corriendo
+  // (para poder pararla si venías de modo chat). Se atenúa como pista visual.
+  actualizarEstadoBotonEnVivo();
   updateDisplay();
 }
 tabChat.addEventListener('click', ()=> setVotingMode('chat'));
 tabManual.addEventListener('click', ()=> setVotingMode('manual'));
+
+/* Mantiene el aspecto atenuado del botón EN VIVO sincronizado: solo se
+   puede iniciar una cuenta atrás en modo chat; en modo manual solo se
+   habilita mientras ya hay una en marcha (para poder pararla). */
+function actualizarEstadoBotonEnVivo(){
+  const bloquearBoton = votingMode === 'manual' && !contadorActivo;
+  envivoBtn.classList.toggle('deshabilitado', bloquearBoton);
+}
 
 /* ---- Init ---- */
 crearCartas();
 asignarImagenes();
 crearBarras();
 updateDisplay();
+actualizarEstadoBotonEnVivo();
 
 /* ---- Sesión de Twitch: vinculación con un solo botón (OAuth Implicit Grant) ----
    El token OAuth se obtiene automáticamente al pulsar "Vincular con Twitch": la app
