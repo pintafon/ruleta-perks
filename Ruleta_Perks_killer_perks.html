@@ -251,7 +251,8 @@ let mensajesDetectados = 0;
 let contadorActivo = false;
 let intervalo = null;
 let twitchClient = null;
-let botonBloqueado = false;
+let accionEnCurso = false;   // evita solapar inicios/paradas al pulsar EN VIVO muy rápido
+let manualWinnerSet = false; // true en cuanto hay un ganador (auto o manual) para esta tanda de cartas
 
 const cartasEl = document.getElementById('cartas');
 const barsEl = document.getElementById('bars');
@@ -301,7 +302,16 @@ function crearCartas(){
       <div class="winner-tag">GANADOR</div>
     `;
     card.addEventListener('click', ()=>{
+      const seEstaAbriendo = !card.classList.contains('girada');
       card.classList.toggle('girada');
+      // Revelado manual: si no hay una votación en marcha y aún no hay ganador
+      // decidido en esta tanda, la PRIMERA carta que se abre pasa a ser la
+      // ganadora. Las siguientes cartas que se abran solo se ven, no cambian
+      // el ganador hasta el próximo "iniciar" o "parar".
+      if(seEstaAbriendo && !contadorActivo && !manualWinnerSet){
+        manualWinnerSet = true;
+        marcarGanadorManual(card.dataset.letra);
+      }
     });
     cartasEl.appendChild(card);
   });
@@ -426,6 +436,14 @@ function highlightWinner(letter){
 function clearWinner(){
   document.querySelectorAll('.perk-card').forEach(c=>c.classList.remove('winner'));
 }
+/* Marca como ganadora la carta que se acaba de abrir a mano, sin tocar el
+   estado (abierta/cerrada) del resto de cartas. */
+function marcarGanadorManual(letter){
+  document.querySelectorAll('.perk-card').forEach(c=>c.classList.remove('winner'));
+  const card = document.querySelector(`.perk-card[data-letra="${letter}"]`);
+  if(card) card.classList.add('winner');
+  announceWinner(letter);
+}
 function announceWinner(letter){
   const idx = letras.indexOf(letter);
   const prize = premios[idx] || '';
@@ -444,19 +462,28 @@ function formatTime(s){
   return String(m).padStart(2,'0') + ':' + String(sec).padStart(2,'0');
 }
 
-/* ---- Control de votación: un solo botón EN VIVO ---- */
+/* ---- Control de votación: un solo botón EN VIVO ----
+   "contadorActivo" se pone a true de inmediato (antes de esperar animaciones)
+   para que ningún otro inicio pueda colarse mientras las cartas se están
+   cerrando. Además, todo clic en el botón pasa por "accionEnCurso": mientras
+   una llamada esté en marcha (iniciar o parar), se ignoran los clics
+   siguientes hasta que termine del todo. Así, aunque se pulse EN VIVO muy
+   rápido varias veces seguidas, nunca quedan dos cuentas atrás corriendo a
+   la vez ni gnadores repitiéndose solos. */
 async function empezarCuentaAtras(segundos){
   if(contadorActivo) return;
+  contadorActivo = true;
+  if(intervalo){ clearInterval(intervalo); intervalo = null; }
   votesByUser = {}; manualVotes = {A:0,B:0,C:0,D:0,E:0}; mensajesDetectados = 0;
+  manualWinnerSet = false;
+
+  envivoBtn.classList.add('activo');
+  envivoBtn.querySelector('.text').textContent = 'PARAR';
 
   // cerrar todas las cartas (esperando a que termine la animación) y barajar las traseras
   await closeAllCardsAndWait(700);
   asignarImagenes();
   updateDisplay();
-
-  contadorActivo = true;
-  envivoBtn.classList.add('activo');
-  envivoBtn.querySelector('.text').textContent = 'PARAR';
 
   let restantes = segundos;
   timerEl.textContent = formatTime(restantes);
@@ -469,6 +496,7 @@ async function empezarCuentaAtras(segundos){
       const winner = pickWinnerByVotes();
       highlightWinner(winner);
       announceWinner(winner);
+      manualWinnerSet = true;
       contadorActivo = false;
       envivoBtn.classList.remove('activo');
       envivoBtn.querySelector('.text').textContent = 'EN VIVO';
@@ -480,6 +508,7 @@ async function pararYReiniciar(){
   if(intervalo){ clearInterval(intervalo); intervalo = null; }
   contadorActivo = false;
   votesByUser = {}; manualVotes = {A:0,B:0,C:0,D:0,E:0}; mensajesDetectados = 0;
+  manualWinnerSet = false;
 
   await closeAllCardsAndWait(700);
   asignarImagenes();
@@ -494,15 +523,19 @@ async function pararYReiniciar(){
   }
 }
 
-envivoBtn.addEventListener('click', ()=>{
-  if(botonBloqueado) return;
-  botonBloqueado = true; setTimeout(()=>{ botonBloqueado = false; }, 400);
-  if(!contadorActivo){
-    const t = parseInt(segundosInput.value,10);
-    if(isNaN(t) || t < 3) return;
-    empezarCuentaAtras(t);
-  } else {
-    pararYReiniciar();
+envivoBtn.addEventListener('click', async ()=>{
+  if(accionEnCurso) return;
+  accionEnCurso = true;
+  try{
+    if(!contadorActivo){
+      const t = parseInt(segundosInput.value,10);
+      if(isNaN(t) || t < 3) return;
+      await empezarCuentaAtras(t);
+    } else {
+      await pararYReiniciar();
+    }
+  } finally {
+    accionEnCurso = false;
   }
 });
 
