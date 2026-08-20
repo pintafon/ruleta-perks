@@ -599,7 +599,20 @@ resetForzadoBtn.addEventListener('click', ()=>{
 });
 
 /* ---- Modo Chat / Modo Manual ---- */
-function setVotingMode(mode){
+async function setVotingMode(mode){
+  if(accionEnCurso) return; // ya hay un inicio/parada en marcha, no interferir
+  // Si se pasa a MODO MANUAL mientras hay una cuenta atrás corriendo (venía
+  // de MODO CHAT), se cancela igual que si se hubiera pulsado "parar": no
+  // tiene sentido dejarla corriendo escondida detrás de la pestaña manual.
+  if(mode === 'manual' && contadorActivo){
+    accionEnCurso = true;
+    try{
+      await pararYReiniciar();
+    } finally {
+      accionEnCurso = false;
+    }
+  }
+
   votingMode = mode;
   tabChat.classList.toggle('active', mode === 'chat');
   tabManual.classList.toggle('active', mode === 'manual');
