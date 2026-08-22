@@ -1,0 +1,983 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Panel de Control — DBD</title>
+<style>
+  :root{
+    --bg: transparent;
+    --panel-bg: transparent;
+    --btn-bg: #141414;
+    --btn-border: #2b2b2b;
+    --active-a: #0e3a3a;
+    --active-b: #0a5f5f;
+    --active-border: #3fd3d3;
+    --text: #ffffff;
+  }
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0; padding:0; height:100%;
+    background:transparent;
+    font-family: Arial, Helvetica, sans-serif;
+    overflow:hidden;
+  }
+  #app{
+    display:flex;
+    flex-direction:column;
+    height:100vh;
+    width:100vw;
+    background:transparent;
+  }
+
+  /* ===== ZONA DE CONTENIDO (ventanas movibles/redimensionables) ===== */
+  #stage{
+    flex:1 1 auto;
+    position:relative;
+    min-height:0;
+    background:transparent;
+    overflow:hidden;
+  }
+  #stage-empty{
+    position:absolute;
+    inset:0;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    color:#555;
+    font-size:15px;
+    letter-spacing:.5px;
+    pointer-events:none;
+    z-index:0;
+  }
+
+  .ventana{
+    position:absolute;
+    display:none;
+    flex-direction:column;
+    border:1px solid rgba(63,211,211,.55);
+    border-radius:8px;
+    overflow:hidden;
+    background:rgba(0,0,0,.001);
+    min-width:160px;
+    min-height:100px;
+  }
+  .ventana.activo{ display:flex; }
+
+  .barra-ventana{
+    flex:0 0 auto;
+    height:26px;
+    background:rgba(15,15,15,.9);
+    color:#9fdada;
+    font-size:12px;
+    font-weight:700;
+    display:flex;
+    align-items:center;
+    padding:0 10px;
+    cursor:move;
+    user-select:none;
+    letter-spacing:.4px;
+  }
+
+  .marco-iframe{
+    position:relative;
+    flex:1 1 auto;
+    min-height:0;
+    overflow:hidden;
+  }
+  .marco-iframe iframe{
+    position:absolute;
+    left:0;
+    top:0;
+    border:0;
+    background:transparent;
+    transform-origin:0 0;
+    /* el tamaño real (grande, fijo) y el "transform: scale()" que hace
+       zoom para encajar sin recortar se aplican por JS */
+  }
+  .overlay-arrastre{
+    position:absolute;
+    inset:0;
+    display:none;
+    z-index:5;
+    cursor:grabbing;
+  }
+  .overlay-arrastre.activo{ display:block; }
+
+  /* Overlay de bloqueo (candado): cuando un botón está bloqueado, este
+     overlay transparente cubre por completo el iframe de esa ventana e
+     impide cualquier clic/interacción dentro de ella (aunque el modo
+     Edit global esté activado). No cambia nada visualmente para el
+     stream (totalmente transparente), solo bloquea el ratón en local. */
+  .overlay-candado{
+    position:absolute;
+    inset:0;
+    display:none;
+    z-index:8;
+    cursor:not-allowed;
+    background:transparent;
+  }
+  .overlay-candado.activo{ display:block; }
+
+  /* Agujero clickeable sobre el botón EN VIVO real de Perks: se dibuja
+     encima del candado (z-index mayor) y reenvía el clic al iframe por
+     postMessage, así ese botón sigue respondiendo aunque Perks esté
+     bloqueado con el candado. Totalmente invisible, no cambia nada del
+     stream. Solo existe/activa mientras el candado de Perks está cerrado. */
+  .overlay-envivo-proxy{
+    position:absolute;
+    display:none;
+    z-index:9;
+    cursor:pointer;
+    background:transparent;
+  }
+  .overlay-envivo-proxy.activo{ display:block; }
+
+  .asa-resize{
+    position:absolute;
+    width:18px; height:18px;
+    z-index:6;
+  }
+  .asa-resize.asa-br{
+    right:0; bottom:0;
+    cursor:nwse-resize;
+    background:linear-gradient(135deg, transparent 50%, rgba(63,211,211,.7) 50%);
+  }
+  .asa-resize.asa-bl{
+    left:0; bottom:0;
+    cursor:nesw-resize;
+    background:linear-gradient(225deg, transparent 50%, rgba(63,211,211,.7) 50%);
+  }
+  .asa-resize.asa-tr{
+    right:0; top:0;
+    cursor:nesw-resize;
+    background:linear-gradient(45deg, transparent 50%, rgba(63,211,211,.7) 50%);
+  }
+  .asa-resize.asa-tl{
+    left:0; top:0;
+    cursor:nwse-resize;
+    background:linear-gradient(315deg, transparent 50%, rgba(63,211,211,.7) 50%);
+  }
+
+  /* Modo vista global (limpio para streaming): oculta barra y asas de
+     arrastre, y borde de la ventana; el contenido interno de cada app ya
+     se oculta solo via su propio 'modo-vista' (setMode) */
+  #stage.modo-vista .barra-ventana,
+  #stage.modo-vista .asa-resize{
+    display:none !important;
+  }
+  #stage.modo-vista .ventana{
+    border-color:transparent;
+  }
+
+  /* Ventana con el candado de SU PROPIA app cerrado: se comporta como si
+     esa app tuviera Edit desactivado solo para ella (aunque el resto siga
+     en modo Edit): no se ve su nombre, ni la barra oscura, ni las esquinas
+     de redimensionar; solo queda visible el contenido de la app. */
+  .ventana.bloqueada .barra-ventana,
+  .ventana.bloqueada .asa-resize{
+    display:none !important;
+  }
+  .ventana.bloqueada{
+    border-color:transparent;
+  }
+
+  /* ===== PANEL DE CONTROL (ahora es una ventana flotante más, con fondo
+     transparente, que se puede mover, hacer zoom, bloquear en posición
+     y ocultar) ===== */
+  .panel-control{
+    position:absolute;
+    display:flex;
+    flex-direction:column;
+    background:transparent;
+    border:1px solid rgba(63,211,211,.35);
+    border-radius:10px;
+    transform-origin: 0 0;
+    z-index:2000000000; /* siempre por encima de cualquier ventana de app */
+  }
+  .panel-control.oculto{ display:none; }
+
+  .barra-panel-control{
+    flex:0 0 auto;
+    height:24px;
+    background:rgba(15,15,15,.55);
+    color:#9fdada;
+    font-size:11px;
+    font-weight:800;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:0 8px;
+    cursor:move;
+    user-select:none;
+    letter-spacing:.4px;
+    border-radius:9px 9px 0 0;
+  }
+  .panel-control.bloqueado .barra-panel-control{ cursor:default; }
+  .btn-candado-panel{
+    background:transparent;
+    border:none;
+    color:#fff;
+    font-size:13px;
+    line-height:1;
+    cursor:pointer;
+    padding:2px 4px;
+  }
+
+  .contenido-panel-control{
+    padding:14px 18px;
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+    background:transparent;
+  }
+
+  .asa-resize-panel{
+    position:absolute;
+    right:0; bottom:0;
+    width:16px; height:16px;
+    cursor:nwse-resize;
+    background:linear-gradient(135deg, transparent 50%, rgba(63,211,211,.7) 50%);
+    border-radius:0 0 8px 0;
+  }
+  .panel-control.bloqueado .asa-resize-panel{ display:none; }
+
+  .fila-botonera{
+    display:flex;
+    gap:10px;
+    justify-content:center;
+  }
+
+  .grupo-boton{
+    flex:1;
+    max-width:260px;
+    display:flex;
+    align-items:stretch;
+    gap:6px;
+  }
+  .grupo-boton .btn-boton{ flex:1 1 auto; max-width:none; }
+
+  .fila-botonera > .btn-boton{
+    flex:1;
+    max-width:260px;
+  }
+
+  .btn-boton{
+    background:var(--btn-bg);
+    color:var(--text);
+    border:1.5px solid var(--btn-border);
+    border-radius:12px;
+    padding:16px 10px;
+    font-size:16px;
+    font-weight:800;
+    cursor:pointer;
+    text-align:center;
+    transition: all .15s ease;
+    user-select:none;
+  }
+  .btn-boton:hover{
+    border-color:#4a4a4a;
+    transform:translateY(-1px);
+  }
+  .btn-boton:active{
+    transform:translateY(0px);
+  }
+  .btn-boton.activo{
+    background:linear-gradient(180deg, var(--active-a), var(--active-b));
+    border-color:var(--active-border);
+    box-shadow:0 0 14px rgba(63,211,211,0.35);
+  }
+
+  .btn-candado{
+    flex:0 0 auto;
+    width:40px;
+    background:var(--btn-bg);
+    color:var(--text);
+    border:1.5px solid var(--btn-border);
+    border-radius:10px;
+    font-size:16px;
+    cursor:pointer;
+    transition: all .15s ease;
+  }
+  .btn-candado:hover{ border-color:#4a4a4a; }
+  .btn-candado.bloqueado{
+    background:linear-gradient(180deg, #5a1414, #3a0a0a);
+    border-color:#ff5c5c;
+  }
+
+  #btnReset{
+    border-color:#5a2b2b;
+  }
+  #btnReset:hover{
+    border-color:#8a3f3f;
+  }
+
+  /* Botón flotante para mostrar/ocultar el panel de control. Vive FUERA
+     del panel de control (fixed sobre toda la ventana) para que siga
+     visible en todo momento aunque el panel esté oculto, y así siempre
+     se pueda volver a mostrar. */
+  .btn-flotante-toggle{
+    position:fixed;
+    left:10px;
+    top:10px;
+    z-index:999;
+    background:rgba(20,20,20,.72);
+    color:#fff;
+    border:1.5px solid rgba(255,255,255,.28);
+    border-radius:8px;
+    padding:8px 12px;
+    font-size:12px;
+    font-weight:800;
+    cursor:pointer;
+    user-select:none;
+    letter-spacing:.3px;
+  }
+  .btn-flotante-toggle:hover{ border-color:#4a4a4a; }
+
+  @media (max-width:900px){
+    .fila-botonera{ flex-wrap:wrap; }
+    .grupo-boton, .fila-botonera > .btn-boton{ min-width:30%; }
+  }
+</style>
+</head>
+<body>
+
+<div id="app">
+
+  <div id="stage">
+    <div id="stage-empty">Nada seleccionado — pulsa un botón para mostrarlo</div>
+
+    <div class="ventana" id="ventana-survivor" data-programa="survivor">
+      <div class="barra-ventana">Survivor Roulette</div>
+      <div class="marco-iframe">
+        <iframe id="frame-survivor" src="survivor.html" title="Survivor Roulette"></iframe>
+        <div class="overlay-arrastre"></div>
+        <div class="overlay-candado"></div>
+      </div>
+      <div class="asa-resize asa-tl"></div>
+      <div class="asa-resize asa-tr"></div>
+      <div class="asa-resize asa-bl"></div>
+      <div class="asa-resize asa-br"></div>
+    </div>
+
+    <div class="ventana" id="ventana-killer" data-programa="killer">
+      <div class="barra-ventana">Killer Roulette</div>
+      <div class="marco-iframe">
+        <iframe id="frame-killer" src="killer.html" title="Killer Roulette"></iframe>
+        <div class="overlay-arrastre"></div>
+        <div class="overlay-candado"></div>
+        <!-- "Agujero" clickeable que se coloca justo encima del botón GIRAR
+             real (dentro del iframe de Killer Roulette). Solo se activa
+             cuando el candado de Killer Roulette está cerrado, para que el
+             botón siga funcionando aunque el resto quede bloqueado. -->
+        <div class="overlay-envivo-proxy" id="proxyGirarKiller" title="GIRAR"></div>
+      </div>
+      <div class="asa-resize asa-tl"></div>
+      <div class="asa-resize asa-tr"></div>
+      <div class="asa-resize asa-bl"></div>
+      <div class="asa-resize asa-br"></div>
+    </div>
+
+    <div class="ventana" id="ventana-perks" data-programa="perks">
+      <div class="barra-ventana">Perks</div>
+      <div class="marco-iframe">
+        <iframe id="frame-perks" src="perks.html" title="Perks"></iframe>
+        <div class="overlay-arrastre"></div>
+        <div class="overlay-candado"></div>
+        <!-- "Agujero" clickeable que se coloca justo encima del botón EN VIVO
+             real (dentro del iframe de Perks). Solo se activa cuando el
+             candado de Perks está cerrado, para que ese botón siga
+             funcionando aunque el resto de Perks quede bloqueado. -->
+        <div class="overlay-envivo-proxy" id="proxyEnVivoPerks" title="EN VIVO"></div>
+      </div>
+      <div class="asa-resize asa-tl"></div>
+      <div class="asa-resize asa-tr"></div>
+      <div class="asa-resize asa-bl"></div>
+      <div class="asa-resize asa-br"></div>
+    </div>
+
+    <div class="ventana" id="ventana-contador" data-programa="contador">
+      <div class="barra-ventana">Contador</div>
+      <div class="marco-iframe">
+        <iframe id="frame-contador" src="contador.html" title="Contador de Victorias"></iframe>
+        <div class="overlay-arrastre"></div>
+        <div class="overlay-candado"></div>
+      </div>
+      <div class="asa-resize asa-tl"></div>
+      <div class="asa-resize asa-tr"></div>
+      <div class="asa-resize asa-bl"></div>
+      <div class="asa-resize asa-br"></div>
+    </div>
+
+    <!-- Panel de control: ahora es una ventana flotante más dentro del
+         stage: fondo transparente, movible, con zoom (asa de redimensionar)
+         y con un candado propio que solo fija su posición/tamaño (no afecta
+         a los botones que contiene). -->
+    <div class="panel-control" id="panelControl">
+      <div class="barra-panel-control" id="barraPanelControl">
+        <span>Panel de Control</span>
+        <button class="btn-candado-panel" id="candadoPanel" title="Fijar posición del panel (no afecta a los botones)">🔓</button>
+      </div>
+      <div class="contenido-panel-control">
+        <div class="fila-botonera">
+          <div class="grupo-boton">
+            <div class="btn-boton" data-programa="survivor">Survivor Roulette</div>
+            <button class="btn-candado" data-candado="survivor" title="Bloquear Survivor Roulette">🔓</button>
+          </div>
+          <div class="grupo-boton">
+            <div class="btn-boton" data-programa="killer">Killer Roulette</div>
+            <button class="btn-candado" data-candado="killer" title="Bloquear Killer Roulette">🔓</button>
+          </div>
+        </div>
+        <div class="fila-botonera">
+          <div class="grupo-boton">
+            <div class="btn-boton" data-programa="contador">Contador</div>
+            <button class="btn-candado" data-candado="contador" title="Bloquear Contador">🔓</button>
+          </div>
+          <div class="grupo-boton">
+            <div class="btn-boton" data-programa="perks">Perks</div>
+            <button class="btn-candado" data-candado="perks" title="Bloquear Perks">🔓</button>
+            <button class="btn-candado" id="refrescarPerks" title="Refrescar solo Perks (como pulsar F5, sin afectar al resto)">🔄</button>
+          </div>
+        </div>
+        <div class="fila-botonera">
+          <div class="btn-boton" id="btnEdit">Edit</div>
+          <div class="btn-boton" id="btnReset">Reset</div>
+        </div>
+      </div>
+      <div class="asa-resize-panel" id="asaPanelControl"></div>
+    </div>
+
+  </div>
+
+</div>
+
+<!-- Botón flotante, siempre visible, para mostrar/ocultar el Panel de Control -->
+<button class="btn-flotante-toggle" id="btnTogglePanel" title="Mostrar/Ocultar el Panel de Control">👁 Ocultar panel</button>
+
+<script>
+  const stage = document.getElementById('stage');
+  const stageEmpty = document.getElementById('stage-empty');
+  const ventanas = {
+    survivor: document.getElementById('ventana-survivor'),
+    killer:   document.getElementById('ventana-killer'),
+    perks:    document.getElementById('ventana-perks'),
+    contador: document.getElementById('ventana-contador'),
+  };
+  const frames = {
+    survivor: document.getElementById('frame-survivor'),
+    killer:   document.getElementById('frame-killer'),
+    perks:    document.getElementById('frame-perks'),
+    contador: document.getElementById('frame-contador'),
+  };
+  const overlaysCandado = {
+    survivor: ventanas.survivor.querySelector('.overlay-candado'),
+    killer:   ventanas.killer.querySelector('.overlay-candado'),
+    perks:    ventanas.perks.querySelector('.overlay-candado'),
+    contador: ventanas.contador.querySelector('.overlay-candado'),
+  };
+  const botonesPrograma = document.querySelectorAll('.btn-boton[data-programa]');
+  const botonesCandado = document.querySelectorAll('.btn-candado[data-candado]');
+  const btnReset = document.getElementById('btnReset');
+  const btnEdit = document.getElementById('btnEdit');
+
+  /* ================= CANDADOS POR BOTÓN =================
+     Un botón bloqueado ('candado cerrado') impide que se pueda modificar
+     nada de esa app (no se ven sus ajustes/controles y no se puede
+     interactuar con ella), sin importar si el modo Edit global está
+     activado. Con el candado cerrado, lo ÚNICO que se puede seguir
+     haciendo con ese botón es activarlo/desactivarlo (mostrar/ocultar
+     su ventana). El Reset siempre funciona pase lo que pase. */
+  const candados = { survivor:false, killer:false, perks:false, contador:false };
+
+  function modoEfectivo(nombre){
+    // Si está bloqueado, ese iframe siempre recibe 'view' (oculta sus
+    // propios ajustes/controles) sin importar el modo Edit global.
+    return candados[nombre] ? 'view' : modoActual;
+  }
+
+  function actualizarCandado(nombre){
+    const bloqueado = candados[nombre];
+    const overlay = overlaysCandado[nombre];
+    const ventana = ventanas[nombre];
+    if(overlay) overlay.classList.toggle('activo', bloqueado);
+    // Con el candado cerrado, esa ventana queda como si tuviera Edit
+    // desactivado solo para ella: sin nombre, sin barra oscura y sin
+    // esquinas de redimensionar, aunque el resto de apps sigan en Edit.
+    if(ventana) ventana.classList.toggle('bloqueada', bloqueado);
+    document.querySelectorAll(`.btn-candado[data-candado="${nombre}"]`).forEach(btn=>{
+      btn.classList.toggle('bloqueado', bloqueado);
+      btn.textContent = bloqueado ? '🔒' : '🔓';
+      btn.title = bloqueado
+        ? 'Desbloquear (permitir modificar)'
+        : 'Bloquear (impedir modificar)';
+    });
+    enviarModo(frames[nombre], modoEfectivo(nombre));
+    if(nombre === 'perks') actualizarProxyEnVivo();
+    if(nombre === 'killer') actualizarProxyGirarKiller();
+  }
+
+  botonesCandado.forEach(btn=>{
+    btn.addEventListener('click', (e)=>{
+      e.stopPropagation(); // no debe activar/desactivar la ventana
+      const nombre = btn.dataset.candado;
+      candados[nombre] = !candados[nombre];
+      actualizarCandado(nombre);
+    });
+  });
+
+  /* ================= ZOOM AUTOMÁTICO DE CADA VENTANA (sin recortes) =================
+     Cada ruleta se renderiza internamente a un tamaño de "lienzo" grande y fijo
+     (LIENZO), y cada página hija nos informa (via postMessage) del rectángulo real
+     que ocupa su contenido dentro de ese lienzo. Con ese dato, aquí calculamos un
+     "transform: scale()" que encaja ese contenido completo dentro del hueco
+     disponible (lo agranda o lo achica), en vez de recortarlo. */
+  const LIENZO = { width: 1700, height: 1300 };
+  const marcos = {
+    survivor: ventanas.survivor.querySelector('.marco-iframe'),
+    killer:   ventanas.killer.querySelector('.marco-iframe'),
+    perks:    ventanas.perks.querySelector('.marco-iframe'),
+    contador: ventanas.contador.querySelector('.marco-iframe'),
+  };
+  const contenidoRects = {
+    survivor: { left:0, top:0, right:LIENZO.width, bottom:LIENZO.height },
+    killer:   { left:0, top:0, right:LIENZO.width, bottom:LIENZO.height },
+    perks:    { left:0, top:0, right:LIENZO.width, bottom:LIENZO.height },
+    contador: { left:0, top:0, right:LIENZO.width, bottom:LIENZO.height },
+  };
+  // Guarda, para cada ventana, la última escala/offset aplicados al iframe
+  // (los mismos con los que se dibuja su transform). Se usa para poder
+  // ubicar en pantalla, con esas mismas cuentas, el "agujero" clickeable
+  // que se coloca sobre el botón EN VIVO real de Perks.
+  const escalasActuales = {};
+
+  Object.values(frames).forEach(f=>{
+    f.style.width = LIENZO.width + 'px';
+    f.style.height = LIENZO.height + 'px';
+  });
+
+  function recalcularEscala(nombre){
+    const marco = marcos[nombre];
+    const frame = frames[nombre];
+    const rect = contenidoRects[nombre];
+    if(!marco || !frame || !rect) return;
+    const availW = marco.clientWidth;
+    const availH = marco.clientHeight;
+    if(availW <= 0 || availH <= 0) return;
+    const contW = Math.max(1, rect.right - rect.left);
+    const contH = Math.max(1, rect.bottom - rect.top);
+    let escala = Math.min(availW / contW, availH / contH);
+    if(!isFinite(escala) || escala <= 0) escala = 1;
+    escala *= 0.97; // pequeño margen de seguridad: evita que el contenido
+                     // quede pegado justo al borde del hueco (redondeos,
+                     // sub-píxeles) y se recorte por el overflow:hidden
+    escala = Math.min(escala, 3); // evita ampliar en exceso y pixelar
+    const offsetX = (availW - escala * contW) / 2;
+    const offsetY = (availH - escala * contH) / 2;
+    frame.style.transform =
+      `translate(${offsetX}px, ${offsetY}px) scale(${escala}) translate(${-rect.left}px, ${-rect.top}px)`;
+
+    escalasActuales[nombre] = { escala, offsetX, offsetY, rect };
+    if(nombre === 'perks') actualizarProxyEnVivo();
+    if(nombre === 'killer') actualizarProxyGirarKiller();
+  }
+
+  // Recibe el tamaño real de contenido que reporta cada ruleta, y también
+  // la posición del botón EN VIVO real que reporta Perks (ver más abajo).
+  let liveButtonRectPerks = null; // coordenadas del botón EN VIVO, en el mismo sistema que contentSize
+  window.addEventListener('message', (e)=>{
+    const d = e.data || {};
+    if(d.type === 'contentSize'){
+      const nombre = Object.keys(frames).find(k => frames[k].contentWindow === e.source);
+      if(!nombre) return;
+      contenidoRects[nombre] = { left:d.left, top:d.top, right:d.right, bottom:d.bottom };
+      recalcularEscala(nombre);
+    } else if(d.type === 'liveButtonRect'){
+      if(frames.perks && e.source === frames.perks.contentWindow){
+        liveButtonRectPerks = { left:d.left, top:d.top, right:d.right, bottom:d.bottom };
+        actualizarProxyEnVivo();
+      }
+    } else if(d.type === 'liveButtonRectKiller'){
+      if(frames.killer && e.source === frames.killer.contentWindow){
+        liveButtonRectKiller = { left:d.left, top:d.top, right:d.right, bottom:d.bottom };
+        actualizarProxyGirarKiller();
+      }
+    }
+  });
+
+  /* ================= AGUJERO CLICKEABLE PARA "EN VIVO" DE PERKS =================
+     Con el candado de Perks cerrado, el overlay de bloqueo cubre todo el
+     iframe e impide cualquier clic (a propósito, para el resto de botones).
+     Para que EN VIVO siga funcionando, colocamos encima de ese overlay un
+     div invisible del tamaño y posición exactos del botón real (calculados
+     con la misma escala/offset que usa el iframe), y al pulsarlo le
+     reenviamos el clic a Perks por postMessage en vez de tocarlo directamente. */
+  const proxyEnVivoPerks = document.getElementById('proxyEnVivoPerks');
+  const proxyGirarKiller = document.getElementById('proxyGirarKiller');
+
+  function actualizarProxyEnVivo(){
+    const calc = escalasActuales.perks;
+    if(!calc || !liveButtonRectPerks){
+      proxyEnVivoPerks.classList.remove('activo');
+      return;
+    }
+    const { escala, offsetX, offsetY, rect } = calc;
+    const left   = offsetX + escala * (liveButtonRectPerks.left  - rect.left);
+    const top    = offsetY + escala * (liveButtonRectPerks.top   - rect.top);
+    const ancho  = escala * (liveButtonRectPerks.right  - liveButtonRectPerks.left);
+    const alto   = escala * (liveButtonRectPerks.bottom - liveButtonRectPerks.top);
+    proxyEnVivoPerks.style.left   = left   + 'px';
+    proxyEnVivoPerks.style.top    = top    + 'px';
+    proxyEnVivoPerks.style.width  = ancho  + 'px';
+    proxyEnVivoPerks.style.height = alto   + 'px';
+    // Solo hace falta que esté activo (clickeable) mientras Perks esté
+    // bloqueado con el candado; si no lo está, el clic ya llega normal
+    // directo al iframe.
+    proxyEnVivoPerks.classList.toggle('activo', !!candados.perks);
+  }
+
+  proxyEnVivoPerks.addEventListener('click', ()=>{
+    if(frames.perks && frames.perks.contentWindow){
+      frames.perks.contentWindow.postMessage({ type:'clickEnVivo' }, '*');
+    }
+  });
+
+  /* ================= AGUJERO CLICKEABLE PARA EL BOTÓN "GIRAR" DE KILLER
+     ROULETTE (mismo mecanismo que el de "EN VIVO" de Perks, ver arriba) ==== */
+  let liveButtonRectKiller = null;
+
+  function actualizarProxyGirarKiller(){
+    const calc = escalasActuales.killer;
+    if(!calc || !liveButtonRectKiller){
+      proxyGirarKiller.classList.remove('activo');
+      return;
+    }
+    const { escala, offsetX, offsetY, rect } = calc;
+    const left   = offsetX + escala * (liveButtonRectKiller.left  - rect.left);
+    const top    = offsetY + escala * (liveButtonRectKiller.top   - rect.top);
+    const ancho  = escala * (liveButtonRectKiller.right  - liveButtonRectKiller.left);
+    const alto   = escala * (liveButtonRectKiller.bottom - liveButtonRectKiller.top);
+    proxyGirarKiller.style.left   = left   + 'px';
+    proxyGirarKiller.style.top    = top    + 'px';
+    proxyGirarKiller.style.width  = ancho  + 'px';
+    proxyGirarKiller.style.height = alto   + 'px';
+    proxyGirarKiller.classList.toggle('activo', !!candados.killer);
+  }
+
+  proxyGirarKiller.addEventListener('click', ()=>{
+    if(frames.killer && frames.killer.contentWindow){
+      frames.killer.contentWindow.postMessage({ type:'clickGirar' }, '*');
+    }
+  });
+
+  // Recalcula el zoom cada vez que el hueco disponible cambia de tamaño
+  // (al redimensionar la ventana con el asa, o al cambiar el tamaño del navegador)
+  if(window.ResizeObserver){
+    Object.keys(marcos).forEach(nombre=>{
+      const ro = new ResizeObserver(()=> recalcularEscala(nombre));
+      ro.observe(marcos[nombre]);
+    });
+  }
+
+  // Posiciones/tamaños por defecto la primera vez que se activa cada programa
+  // (rejilla 2x2, luego el usuario puede moverlas/redimensionarlas a su gusto)
+  const posicionesIniciales = {
+    survivor: { left:'2%',  top:'2%',  width:'48%', height:'48%' },
+    killer:   { left:'50%', top:'2%',  width:'48%', height:'48%' },
+    perks:    { left:'2%',  top:'50%', width:'48%', height:'48%' },
+    contador: { left:'50%', top:'50%', width:'48%', height:'48%' },
+  };
+  const yaPosicionada = { survivor:false, killer:false, perks:false, contador:false };
+
+  let zTope = 1;
+  let modoActual = 'edit'; // 'edit' = se ven controles | 'view' = limpio, solo la ruleta
+
+  function hayAlgoActivo(){
+    return Object.values(ventanas).some(v => v.classList.contains('activo'));
+  }
+  function actualizarMensajeVacio(){
+    stageEmpty.style.display = hayAlgoActivo() ? 'none' : 'flex';
+  }
+  function enviarModo(frame, modo){
+    if(frame && frame.contentWindow){
+      frame.contentWindow.postMessage({ type:'setMode', mode: modo }, '*');
+    }
+  }
+  function aplicarModoATodos(modo){
+    modoActual = modo;
+    stage.classList.toggle('modo-vista', modo === 'view');
+    btnEdit.classList.toggle('activo', modo === 'edit');
+    Object.keys(frames).forEach(nombre => enviarModo(frames[nombre], modoEfectivo(nombre)));
+  }
+  function traerAlFrente(ventana){
+    zTope++;
+    ventana.style.zIndex = zTope;
+  }
+
+  function togglePrograma(nombre, btn){
+    const ventana = ventanas[nombre];
+    const frame = frames[nombre];
+    const nuevoEstado = !ventana.classList.contains('activo');
+
+    if(nuevoEstado && !yaPosicionada[nombre]){
+      const pos = posicionesIniciales[nombre];
+      ventana.style.left = pos.left;
+      ventana.style.top = pos.top;
+      ventana.style.width = pos.width;
+      ventana.style.height = pos.height;
+      yaPosicionada[nombre] = true;
+    }
+
+    ventana.classList.toggle('activo', nuevoEstado);
+    // Puede haber más de un botón para el mismo programa (p. ej. dentro y
+    // fuera del panel), así que sincronizamos el estado 'activo' en todos.
+    document.querySelectorAll(`.btn-boton[data-programa="${nombre}"]`).forEach(b=>{
+      b.classList.toggle('activo', nuevoEstado);
+    });
+
+    if(nuevoEstado){
+      traerAlFrente(ventana);
+      enviarModo(frame, modoEfectivo(nombre));
+      recalcularEscala(nombre);
+    }
+    actualizarMensajeVacio();
+  }
+
+  botonesPrograma.forEach(btn=>{
+    btn.addEventListener('click', ()=> togglePrograma(btn.dataset.programa, btn));
+  });
+
+  // RESET: apaga/cierra todo (sin seleccionar nada). Tiene prioridad sobre
+  // todo y funciona SIEMPRE, sin que le afecte ningún candado (ni el de
+  // cada botón ni el del propio panel). No borra las posiciones guardadas
+  // ni el estado de los candados.
+  btnReset.addEventListener('click', ()=>{
+    Object.values(ventanas).forEach(v => v.classList.remove('activo'));
+    botonesPrograma.forEach(b => b.classList.remove('activo'));
+    actualizarMensajeVacio();
+  });
+
+  // EDIT: ahora es un interruptor independiente (clic = activa, clic otra vez = desactiva)
+  btnEdit.addEventListener('click', ()=>{
+    aplicarModoATodos(modoActual === 'edit' ? 'view' : 'edit');
+  });
+
+  Object.keys(frames).forEach(nombre=>{
+    frames[nombre].addEventListener('load', ()=>{
+      const ventana = frames[nombre].closest('.ventana');
+      if(ventana && ventana.classList.contains('activo')) enviarModo(frames[nombre], modoEfectivo(nombre));
+    });
+  });
+
+  btnEdit.classList.add('activo');
+
+  /* ================= ARRASTRAR Y REDIMENSIONAR VENTANAS ================= */
+  Object.values(ventanas).forEach(ventana=>{
+    const barra = ventana.querySelector('.barra-ventana');
+    const overlay = ventana.querySelector('.overlay-arrastre');
+
+    ventana.addEventListener('mousedown', ()=> traerAlFrente(ventana));
+
+    barra.addEventListener('mousedown', (e)=>{
+      e.preventDefault();
+      traerAlFrente(ventana);
+      const stageRect = stage.getBoundingClientRect();
+      const rect = ventana.getBoundingClientRect();
+      const offX = e.clientX - rect.left;
+      const offY = e.clientY - rect.top;
+      overlay.classList.add('activo');
+
+      function mover(ev){
+        let nuevoLeft = ev.clientX - stageRect.left - offX;
+        let nuevoTop = ev.clientY - stageRect.top - offY;
+        nuevoLeft = Math.max(-rect.width + 60, Math.min(nuevoLeft, stageRect.width - 60));
+        nuevoTop = Math.max(0, Math.min(nuevoTop, stageRect.height - 26));
+        ventana.style.left = nuevoLeft + 'px';
+        ventana.style.top = nuevoTop + 'px';
+      }
+      function soltar(){
+        overlay.classList.remove('activo');
+        document.removeEventListener('mousemove', mover);
+        document.removeEventListener('mouseup', soltar);
+      }
+      document.addEventListener('mousemove', mover);
+      document.addEventListener('mouseup', soltar);
+    });
+
+    // Redimensionar desde cualquiera de las 4 esquinas. Cada esquina ancla
+    // el lado contrario (p. ej. arrastrar la esquina superior-izquierda
+    // mantiene fija la esquina inferior-derecha), igual que en cualquier
+    // editor de ventanas normal.
+    const MIN_ANCHO = 160, MIN_ALTO = 100;
+    const esquinas = ['asa-tl','asa-tr','asa-bl','asa-br'];
+    esquinas.forEach(clase=>{
+      const asa = ventana.querySelector('.' + clase);
+      if(!asa) return;
+      asa.addEventListener('mousedown', (e)=>{
+        e.preventDefault();
+        e.stopPropagation();
+        traerAlFrente(ventana);
+        const stageRect = stage.getBoundingClientRect();
+        const rect = ventana.getBoundingClientRect();
+        const startX = e.clientX, startY = e.clientY;
+        const startLeft = rect.left - stageRect.left;
+        const startTop = rect.top - stageRect.top;
+        const startW = rect.width, startH = rect.height;
+        overlay.classList.add('activo');
+
+        const afectaIzquierda = (clase === 'asa-tl' || clase === 'asa-bl');
+        const afectaArriba   = (clase === 'asa-tl' || clase === 'asa-tr');
+
+        function mover(ev){
+          const dx = ev.clientX - startX;
+          const dy = ev.clientY - startY;
+
+          let nuevoAncho = afectaIzquierda ? (startW - dx) : (startW + dx);
+          let nuevoAlto  = afectaArriba    ? (startH - dy) : (startH + dy);
+          nuevoAncho = Math.max(MIN_ANCHO, nuevoAncho);
+          nuevoAlto  = Math.max(MIN_ALTO, nuevoAlto);
+
+          const nuevoLeft = afectaIzquierda ? (startLeft + (startW - nuevoAncho)) : startLeft;
+          const nuevoTop  = afectaArriba    ? (startTop  + (startH - nuevoAlto))  : startTop;
+
+          ventana.style.width  = nuevoAncho + 'px';
+          ventana.style.height = nuevoAlto + 'px';
+          ventana.style.left   = nuevoLeft + 'px';
+          ventana.style.top    = nuevoTop + 'px';
+        }
+        function soltar(){
+          overlay.classList.remove('activo');
+          document.removeEventListener('mousemove', mover);
+          document.removeEventListener('mouseup', soltar);
+        }
+        document.addEventListener('mousemove', mover);
+        document.addEventListener('mouseup', soltar);
+      });
+    });
+  });
+
+  /* ================= PANEL DE CONTROL: mover, zoom (escala), candado propio,
+     y botón flotante para ocultarlo/mostrarlo ================= */
+  const panelControl = document.getElementById('panelControl');
+  const barraPanelControl = document.getElementById('barraPanelControl');
+  const asaPanelControl = document.getElementById('asaPanelControl');
+  const candadoPanelBtn = document.getElementById('candadoPanel');
+  const btnTogglePanel = document.getElementById('btnTogglePanel');
+
+  let panelBloqueado = false; // candado del PANEL: solo fija su posición/tamaño,
+                               // nunca impide usar los botones de dentro.
+  let panelOculto = false;
+  let panelScale = 1;
+
+  function posicionarPanelControlInicial(){
+    const stageRect = stage.getBoundingClientRect();
+    const w = panelControl.offsetWidth || 520;
+    const h = panelControl.offsetHeight || 180;
+    const left = Math.max(8, (stageRect.width - w) / 2);
+    const top = Math.max(8, stageRect.height - h - 16);
+    panelControl.style.left = left + 'px';
+    panelControl.style.top = top + 'px';
+  }
+  window.addEventListener('load', posicionarPanelControlInicial);
+  setTimeout(posicionarPanelControlInicial, 200);
+
+  // El panel de control usa su propio z-index, fijo y muchísimo más alto
+  // que el de cualquier ventana de app (zTope). Así queda SIEMPRE por
+  // encima, se abra o se traiga al frente la app que se traiga, sin
+  // depender del mismo contador que usan las ventanas entre sí.
+  const Z_PANEL = 2000000000;
+  function fijarPanelEncima(){
+    panelControl.style.zIndex = Z_PANEL;
+  }
+  fijarPanelEncima(); // que empiece por encima de las ventanas
+
+  barraPanelControl.addEventListener('mousedown', (e)=>{
+    if(e.target === candadoPanelBtn) return;
+    if(panelBloqueado) return;
+    e.preventDefault();
+    fijarPanelEncima();
+    const stageRect = stage.getBoundingClientRect();
+    const rect = panelControl.getBoundingClientRect();
+    const offX = e.clientX - rect.left;
+    const offY = e.clientY - rect.top;
+
+    function mover(ev){
+      let nuevoLeft = ev.clientX - stageRect.left - offX;
+      let nuevoTop = ev.clientY - stageRect.top - offY;
+      nuevoLeft = Math.max(-rect.width + 60, Math.min(nuevoLeft, stageRect.width - 60));
+      nuevoTop = Math.max(0, Math.min(nuevoTop, stageRect.height - 24));
+      panelControl.style.left = nuevoLeft + 'px';
+      panelControl.style.top = nuevoTop + 'px';
+    }
+    function soltar(){
+      document.removeEventListener('mousemove', mover);
+      document.removeEventListener('mouseup', soltar);
+    }
+    document.addEventListener('mousemove', mover);
+    document.addEventListener('mouseup', soltar);
+  });
+
+  asaPanelControl.addEventListener('mousedown', (e)=>{
+    if(panelBloqueado) return;
+    e.preventDefault();
+    e.stopPropagation();
+    fijarPanelEncima();
+    const startX = e.clientX;
+    const startScale = panelScale;
+
+    function mover(ev){
+      const delta = (ev.clientX - startX) / 260;
+      let nuevaEscala = startScale + delta;
+      nuevaEscala = Math.max(0.5, Math.min(2.2, nuevaEscala));
+      panelScale = nuevaEscala;
+      panelControl.style.transform = `scale(${panelScale})`;
+    }
+    function soltar(){
+      document.removeEventListener('mousemove', mover);
+      document.removeEventListener('mouseup', soltar);
+    }
+    document.addEventListener('mousemove', mover);
+    document.addEventListener('mouseup', soltar);
+  });
+
+  // Candado del PANEL: fija/libera su posición y tamaño únicamente.
+  // Con el candado puesto se puede seguir usando con total normalidad
+  // todo lo que hay dentro (bloquear/desbloquear botones, Edit, Reset...).
+  candadoPanelBtn.addEventListener('click', (e)=>{
+    e.stopPropagation();
+    panelBloqueado = !panelBloqueado;
+    panelControl.classList.toggle('bloqueado', panelBloqueado);
+    candadoPanelBtn.textContent = panelBloqueado ? '🔒' : '🔓';
+    candadoPanelBtn.title = panelBloqueado
+      ? 'Panel fijado en su sitio (clic para poder moverlo/redimensionarlo de nuevo)'
+      : 'Fijar posición del panel (no afecta a los botones)';
+  });
+
+  // Refrescar SOLO Perks (por ejemplo si Twitch no vincula o da error):
+  // recarga únicamente ese iframe, como si se pulsara F5 en esa app, sin
+  // tocar ni reiniciar el resto de programas ni sus posiciones/candados.
+  const refrescarPerksBtn = document.getElementById('refrescarPerks');
+  refrescarPerksBtn.addEventListener('click', (e)=>{
+    e.stopPropagation(); // no debe activar/desactivar la ventana de Perks
+    const frame = frames.perks;
+    if(!frame) return;
+    try{
+      frame.contentWindow.location.reload();
+    }catch(err){
+      // Alternativa por si el reload directo fallara: recargar cambiando el src.
+      const src = frame.getAttribute('src');
+      frame.setAttribute('src', src);
+    }
+  });
+
+  // Botón flotante: muestra/oculta el Panel de Control. Vive fuera del
+  // panel, así que siempre está accesible para volver a mostrarlo.
+  btnTogglePanel.addEventListener('click', ()=>{
+    panelOculto = !panelOculto;
+    panelControl.classList.toggle('oculto', panelOculto);
+    btnTogglePanel.textContent = panelOculto ? '👁 Mostrar panel' : '👁 Ocultar panel';
+  });
+</script>
+
+</body>
+</html>
