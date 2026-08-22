@@ -104,7 +104,10 @@
      oculta en modo vista) y anclado cerca de la ruleta, no en el panel
      lateral. Rojo por defecto, verde estilo Kick mientras gira. Letras
      blancas con trazo negro grueso para que se lean bien sobre cualquier
-     fondo. ===== */
+     fondo. Se puede arrastrar libremente con el ratón/dedo; su posición
+     ya NO depende del modo edición/vista (antes tenía dos posiciones fijas
+     según el modo; ahora es una sola posición libre que el usuario mueve
+     a su gusto y que se recuerda entre sesiones). ===== */
   .girar-flotante{
     position:fixed;
     left:1097px;
@@ -122,21 +125,16 @@
     font-weight:700;
     letter-spacing:1px;
     text-transform:uppercase;
-    cursor:pointer;
+    cursor:grab;
+    touch-action:none;
     -webkit-text-stroke:1.5px #000;
     text-shadow:
       -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 2px 2px 0 #000,
       -2px 0 0 #000, 2px 0 0 #000, 0 -2px 0 #000, 0 2px 0 #000;
     box-shadow:0 6px 18px rgba(0,0,0,.55), 0 0 16px rgba(230,0,0,.55);
-    transition: background .2s ease, box-shadow .2s ease, left .3s ease, top .3s ease;
+    transition: background .2s ease, box-shadow .2s ease;
   }
-  /* Posición 2: modo edición (panel de ajustes visible, candado abierto). */
-  body:not(.modo-vista) .girar-flotante{
-    left:1520px;
-    top:166px;
-  }
-  /* Posición 1: modo vista / candado puesto (panel oculto). Es la posición
-     por defecto de la regla de arriba (left:1097px; top:98px;). */
+  .girar-flotante.arrastrando{ cursor:grabbing; }
   .girar-flotante:hover{ transform:translate(-50%,-50%) translateY(-2px); }
   .girar-flotante:active{ transform:translate(-50%,-50%) translateY(1px); }
   .girar-flotante.girando{
@@ -1073,13 +1071,120 @@ window.addEventListener('message', function(e){
   const d = e.data || {};
   if(d.type === 'setMode'){
     document.body.classList.toggle('modo-vista', d.mode === 'view');
+  } else if(d.type === 'clickGirarSurvivor'){
+    spinBtn.click();
   }
 });
+
+/* El botón GIRAR se puede arrastrar libremente con el ratón/dedo. Su
+   posición se guarda en localStorage (se recuerda entre sesiones), y se
+   le avisa a panel.html de su posición real (rect) para que, si la
+   ventana está bloqueada con el candado, pueda seguir activándose con un
+   clic a través de un "agujero" transparente. */
+(function habilitarArrastreSpinBtn(){
+  const CLAVE_POS = 'survivorGirarBtnPos';
+  const UMBRAL = 4; // px de movimiento mínimo para considerarlo arrastre y no un clic
+  let seMovio = false;
+
+  // El botón usa transform:translate(-50%,-50%), así que left/top son el
+  // punto central; basta con sumarles el delta del arrastre tal cual.
+  let guardada = null;
+  try{ guardada = JSON.parse(localStorage.getItem(CLAVE_POS) || 'null'); }catch(e){}
+  if(guardada && typeof guardada.left === 'number' && typeof guardada.top === 'number'){
+    spinBtn.style.left = guardada.left + 'px';
+    spinBtn.style.top = guardada.top + 'px';
+  }
+
+  function limitarAVentana(left, top){
+    const anchoDoc = document.documentElement.clientWidth;
+    const altoDoc = document.documentElement.clientHeight;
+    left = Math.max(0, Math.min(left, anchoDoc));
+    top = Math.max(0, Math.min(top, altoDoc));
+    return { left, top };
+  }
+
+  spinBtn.addEventListener('pointerdown', (e)=>{
+    if(e.button !== undefined && e.button !== 0) return;
+    seMovio = false;
+    const startX = e.clientX, startY = e.clientY;
+    const startLeft = parseFloat(getComputedStyle(spinBtn).left) || 0;
+    const startTop = parseFloat(getComputedStyle(spinBtn).top) || 0;
+    spinBtn.setPointerCapture(e.pointerId);
+
+    function mover(ev){
+      const dx = ev.clientX - startX, dy = ev.clientY - startY;
+      if(!seMovio && (Math.abs(dx) > UMBRAL || Math.abs(dy) > UMBRAL)){
+        seMovio = true;
+        spinBtn.classList.add('arrastrando');
+      }
+      if(seMovio){
+        const pos = limitarAVentana(startLeft + dx, startTop + dy);
+        spinBtn.style.left = pos.left + 'px';
+        spinBtn.style.top = pos.top + 'px';
+      }
+    }
+    function soltar(){
+      spinBtn.classList.remove('arrastrando');
+      spinBtn.removeEventListener('pointermove', mover);
+      spinBtn.removeEventListener('pointerup', soltar);
+      spinBtn.removeEventListener('pointercancel', soltar);
+      if(seMovio){
+        try{
+          localStorage.setItem(CLAVE_POS, JSON.stringify({
+            left: parseFloat(spinBtn.style.left),
+            top: parseFloat(spinBtn.style.top)
+          }));
+        }catch(err){}
+        reportarPosicionGirar();
+      }
+    }
+    spinBtn.addEventListener('pointermove', mover);
+    spinBtn.addEventListener('pointerup', soltar);
+    spinBtn.addEventListener('pointercancel', soltar);
+  });
+
+  // Si hubo arrastre real, cancela el clic que el navegador dispararía
+  // igualmente al soltar, para que no se confunda con "pulsar GIRAR".
+  // Se intercepta en document (fase de captura), no en el propio botón:
+  // un listener de captura en el MISMO elemento que ya tiene otro listener
+  // de clic no garantiza ejecutarse antes (el orden real es el de
+  // registro, no el de la fase). Capturando en un ancestro sí garantiza
+  // que esto corre antes de que el clic llegue al botón.
+  document.addEventListener('click', (e)=>{
+    if(seMovio && (e.target === spinBtn || spinBtn.contains(e.target))){
+      e.preventDefault();
+      e.stopPropagation();
+      seMovio = false;
+    }
+  }, true);
+})();
+
+/* Reporta a panel.html el rectángulo real (en pantalla) del botón GIRAR,
+   para que —si esta ventana está bloqueada con el candado— pueda colocar
+   encima un hueco clicable que reenvíe el clic aquí y el botón siga
+   funcionando aunque el resto esté bloqueado. */
+function reportarPosicionGirar(){
+  const r = spinBtn.getBoundingClientRect();
+  try{
+    parent.postMessage({
+      type:'liveButtonRectSurvivor',
+      left:r.left, top:r.top, right:r.right, bottom:r.bottom
+    }, '*');
+  }catch(e){}
+}
+window.addEventListener('load', reportarPosicionGirar);
+setTimeout(reportarPosicionGirar, 300);
+setTimeout(reportarPosicionGirar, 1000);
+setTimeout(reportarPosicionGirar, 2500);
 
 /* --- Reporta al panel el tamaño real del contenido, para que pueda
    escalarlo (zoom) sin recortarlo al redimensionar la ventana --- */
 (function(){
-  var SELECTORES = ['.container'];
+  // spinBtn (el botón GIRAR) es position:fixed, así que NO forma parte
+  // del cuadro de .container aunque esté anidado dentro en el HTML. Si no
+  // se incluye aquí, el rectángulo reportado a panel.html no contempla su
+  // posición real y el botón se descuadra/recorta al reescalar la ventana.
+  var SELECTORES = ['.container', '#spinBtn'];
   var MARGEN = 12;
   var pendiente = false;
   function medir(){
