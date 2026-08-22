@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Contador Survivor y Killer</title>
+
+<style>
+body{
+    background: transparent;
+    color: white;
+    font-family: Arial, sans-serif;
+    text-align: center;
+    margin: 0;
+    padding: 20px;
+}
+
+.fila{
+    display: flex;
+    justify-content: center;
+    gap: 80px;
+}
+
+.bloque{
+    display: flex;
+    align-items: flex-start;
+    gap: 20px;
+}
+/* TITULOS */
+h2{
+    margin: 0;
+    color: white;
+    font-size: 32px;
+    font-weight: 900;
+    letter-spacing: 2px;
+
+    /* Contorno negro sólido */
+    text-shadow:
+        -3px -3px 0 #000,
+         3px -3px 0 #000,
+        -3px  3px 0 #000,
+         3px  3px 0 #000,
+        -3px  0px 0 #000,
+         3px  0px 0 #000,
+         0px -3px 0 #000,
+         0px  3px 0 #000;
+}
+
+.contador{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    max-width: 670px;
+}
+/* CIRCULOS */
+.circulo{
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+
+    background: #ff0000;
+
+    /* CONTORNO NEGRO SÓLIDO */
+    border: 4px solid #000;
+
+    /* Brillo rojo */
+    box-shadow:
+        0 0 10px #ff0000,
+        0 0 20px #ff0000;
+
+    transition: all 0.2s ease;
+    cursor: pointer;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    color: #fff;
+    font-size: 20px;
+    font-weight: bold;
+    user-select: none;
+}
+
+.circulo:hover{
+    transform: scale(1.15);
+}
+
+.ganado{
+    background: #0011ff;
+
+    /* Mantiene el mismo contorno negro */
+    border: 4px solid #000;
+
+    box-shadow:
+        0 0 10px #0011ff,
+        0 0 20px #0011ff,
+        0 0 35px #0011ff;
+}
+
+.ganado::before{
+    content: "✔";
+    color: white;
+}
+.controles{
+    margin-top:25px;
+    display:flex;
+    justify-content:center;
+    gap:15px;
+    flex-wrap:wrap;
+}
+
+button{
+    padding:10px 18px;
+    font-size:18px;
+    font-weight:bold;
+    border:none;
+    border-radius:8px;
+    cursor:pointer;
+    background:#222;
+    color:white;
+    border:2px solid #555;
+}
+
+button:hover{
+    background:#444;
+}
+body.modo-vista .oculto-en-vista{ display:none !important; }
+</style>
+</head>
+
+<body>
+
+<div class="fila">
+
+    <div class="bloque">
+        <h2>KILLER</h2>
+
+        <div class="contador" id="killer">
+            <div class="circulo"></div>
+            <div class="circulo"></div>
+            <div class="circulo"></div>
+            <div class="circulo"></div>
+        </div>
+    </div>
+
+    <div class="bloque">
+        <h2>SURVIVOR</h2>
+
+        <div class="contador" id="survivor">
+            <div class="circulo"></div>
+            <div class="circulo"></div>
+            <div class="circulo"></div>
+            <div class="circulo"></div>
+            <div class="circulo"></div>
+            <div class="circulo"></div>
+            <div class="circulo"></div>
+            <div class="circulo"></div>
+        </div>
+    </div>
+
+</div>
+<div class="controles oculto-en-vista">
+    <button onclick="agregar('killer')">+ Killer</button>
+    <button onclick="quitar('killer')">- Killer</button>
+
+    <button onclick="agregar('survivor')">+ Survivor</button>
+    <button onclick="quitar('survivor')">- Survivor</button>
+</div>
+<script>
+function activarCirculo(circulo){
+    circulo.addEventListener("click", () => {
+        circulo.classList.toggle("ganado");
+    });
+}
+
+document.querySelectorAll(".circulo").forEach(activarCirculo);
+
+function agregar(id){
+    const contenedor = document.getElementById(id);
+
+    const nuevo = document.createElement("div");
+    nuevo.classList.add("circulo");
+
+    activarCirculo(nuevo);
+
+    contenedor.appendChild(nuevo);
+}
+
+function quitar(id){
+    const contenedor = document.getElementById(id);
+
+    if(contenedor.children.length > 0){
+        contenedor.removeChild(contenedor.lastElementChild);
+    }
+}
+
+/* --- Comunicación con la botonera (panel padre) --- */
+window.addEventListener('message', function(e){
+  const d = e.data || {};
+  if(d.type === 'setMode'){
+    document.body.classList.toggle('modo-vista', d.mode === 'view');
+  }
+});
+
+/* --- Reporta al panel el tamaño real del contenido, para que pueda
+   escalarlo (zoom) sin recortarlo al redimensionar la ventana --- */
+(function(){
+  var SELECTORES = ['.fila', '.controles'];
+  var MARGEN = 12;
+  var pendiente = false;
+  function medir(){
+    var left=Infinity, top=Infinity, right=-Infinity, bottom=-Infinity, hayAlgo=false;
+    SELECTORES.forEach(function(sel){
+      document.querySelectorAll(sel).forEach(function(el){
+        var cs = getComputedStyle(el);
+        if(cs.display === 'none' || cs.visibility === 'hidden') return;
+        var r = el.getBoundingClientRect();
+        if(r.width === 0 && r.height === 0) return;
+        hayAlgo = true;
+        if(r.left < left) left = r.left;
+        if(r.top < top) top = r.top;
+        if(r.right > right) right = r.right;
+        if(r.bottom > bottom) bottom = r.bottom;
+      });
+    });
+    if(!hayAlgo || right <= left || bottom <= top) return;
+    try{
+      parent.postMessage({
+        type:'contentSize',
+        left: Math.floor(left) - MARGEN,
+        top: Math.floor(top) - MARGEN,
+        right: Math.ceil(right) + MARGEN,
+        bottom: Math.ceil(bottom) + MARGEN
+      }, '*');
+    }catch(e){}
+  }
+  function solicitarMedicion(){
+    if(pendiente) return;
+    pendiente = true;
+    requestAnimationFrame(function(){ pendiente = false; medir(); });
+  }
+  window.addEventListener('load', medir);
+  setTimeout(medir, 300);
+  setTimeout(medir, 1000);
+  setTimeout(medir, 2500);
+  if(window.ResizeObserver){
+    var ro = new ResizeObserver(solicitarMedicion);
+    SELECTORES.forEach(function(sel){
+      document.querySelectorAll(sel).forEach(function(el){ ro.observe(el); });
+    });
+  }
+})();
+</script>
+</body>
+</html>
