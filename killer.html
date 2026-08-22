@@ -638,7 +638,7 @@ function tryImageCandidatesVerbose(killer){
     }
 
     const name = killer.nombre;
-    const prefixes = ['./images/', './'];
+    const prefixes = ['./Ruleta Killer/', './images/', './'];
     const extensions = ['webp','png','jpg','jpeg','gif','svg'];
     const raw = name;
     const encoded = encodeURIComponent(name);
@@ -710,22 +710,25 @@ for (const cantidad of layout) {
 
         const img = document.createElement("img");
         img.alt = killer.nombre;
+        img.src = fallbackDataURL(110); // placeholder mientras se busca la imagen real
 
-  img.src = "./" + encodeURIComponent(killer.nombre) + ".webp";
+        tryImageCandidatesVerbose(killer).then(src => {
+            if(src){
+                img.src = src;
+            } else {
+                img.src = fallbackDataURL(110);
+                card.classList.add("desactivado");
+                const notice = document.createElement("div");
+                notice.className = "falta-badge";
+                notice.textContent = `FALTA: ${killer.nombre}`;
+                card.appendChild(notice);
+            }
+        });
 
-img.onerror = function(){
-    this.src = fallbackDataURL(110);
-
-    card.classList.add("desactivado");
-
-    const notice = document.createElement("div");
-    notice.className = "falta-badge";
-    notice.textContent = `FALTA: ${killer.nombre}`;
-    card.appendChild(notice);
-};
 card.appendChild(img);
 const marco = document.createElement("img");
 marco.src = "./Marco Killers.png";
+marco.onerror = function(){ this.style.display = 'none'; };
 marco.className = "marco-killer";
 card.appendChild(marco);
 card.addEventListener("click", () => {
@@ -974,8 +977,13 @@ const diceWrap = document.getElementById("diceWrap");
 
   // Si hubo arrastre real, cancela el clic que el navegador dispararía
   // igualmente al soltar, para que no se confunda con "pulsar GIRAR".
-  boton.addEventListener('click', (e)=>{
-    if(seMovio){
+  // Se intercepta en document (fase de captura), no en el propio botón:
+  // un listener de captura puesto en el MISMO elemento que ya tiene otro
+  // listener de clic no garantiza ejecutarse antes (el orden real es el
+  // de registro, no el de la fase). Capturando en un ancestro sí se
+  // garantiza que esto corre antes de que el clic llegue al botón.
+  document.addEventListener('click', (e)=>{
+    if(seMovio && (e.target === boton || boton.contains(e.target))){
       e.preventDefault();
       e.stopPropagation();
       seMovio = false;
