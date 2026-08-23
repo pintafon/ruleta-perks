@@ -19,8 +19,7 @@
      transparente sobre la imagen del juego en OBS. */
   #panel{
     display:flex; flex-direction:column; align-items:center;
-    background:transparent; border-radius:18px; padding:22px 26px;
-    position:relative; /* ancla el bloque de ajustes a la esquina de este panel */
+    background:rgba(0,0,0,.38); border-radius:18px; padding:22px 26px;
   }
 
   /* Aviso de error visible en pantalla en vez de una página en blanco si
@@ -129,24 +128,15 @@
   #envivoBtn.deshabilitado{ opacity:.4; cursor:not-allowed; }
   @keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:.3;} }
 
-  /* ---- Modo Chat / Modo Manual ----
-     Ahora vive DENTRO del panel de Ajustes (el desplegable del engranaje),
-     en vez de fijo en una esquina de la pantalla: así queda incluido en la
-     misma zona que ya se mide para el zoom automático (y que se oculta
-     junto con el resto de controles en modo vista/candado), en lugar de
-     quedar suelto y recortado al hacer zoom. */
-  .modo-tabs{ display:flex; border-radius:8px; overflow:hidden; border:1px solid rgba(255,255,255,.3); }
-  .modo-tab{ flex:1; text-align:center; padding:8px 6px; background:rgba(0,0,0,.55); color:#bbb; font-weight:800; font-size:11px; letter-spacing:.5px; cursor:pointer; }
+  /* ---- Modo Chat / Modo Manual ---- */
+  .modo-tabs{ position:fixed; left:14px; bottom:14px; display:flex; border-radius:8px; overflow:hidden; border:1px solid rgba(255,255,255,.3); z-index:20; }
+  .modo-tab{ padding:8px 14px; background:rgba(0,0,0,.55); color:#bbb; font-weight:800; font-size:11px; letter-spacing:.5px; cursor:pointer; }
   .modo-tab.active{ background:#333; color:#fff; }
 
   /* ---- Controles del streamer (todo detrás del engranaje de ajustes) ----
      Más pequeño y más pegado a la esquina para que el recorte en OBS
      (filtro Recortar/Pad sobre la fuente) necesite tapar el mínimo posible. */
-  /* Anclado a la esquina de #panel (no a toda la ventana): así queda pegado
-     a las cartas del sorteo en vez de separado en la esquina de la pantalla,
-     lo que permite hacer zoom óptimo sin que la rueda quede fuera del recorte
-     que se use en OBS. */
-  .stream-controls{ position:absolute; right:8px; top:8px; z-index:20; display:flex; align-items:center; gap:6px; }
+  .stream-controls{ position:fixed; right:8px; top:8px; z-index:20; display:flex; align-items:center; gap:6px; }
   .icon-btn{
     width:24px; height:24px; border-radius:6px; background:rgba(0,0,0,.55); border:1px solid rgba(255,255,255,.3);
     color:#fff; font-size:12px; display:flex; align-items:center; justify-content:center; cursor:pointer;
@@ -158,12 +148,12 @@
      sigue vinculada. Gris = sin vincular, ámbar parpadeante = conectando,
      verde = conectado y escuchando el chat. */
   .twitch-light{
-    width:12px; height:12px; border-radius:50%; background:#e63946; border:1px solid rgba(255,255,255,.35);
+    width:12px; height:12px; border-radius:50%; background:#555; border:1px solid rgba(255,255,255,.35);
     box-shadow:0 0 4px rgba(0,0,0,.6); flex:0 0 auto; cursor:default;
   }
   .twitch-light.conectando{ background:#e6b400; box-shadow:0 0 8px #e6b400; animation:pulse 1s infinite; }
   .twitch-light.on{ background:#2ecc71; box-shadow:0 0 8px #2ecc71; }
-  .twitch-light.off{ background:#e63946; box-shadow:0 0 6px #e63946; }
+  .twitch-light.off{ background:#555; box-shadow:none; }
 
   /* Panel desplegable único: tiempo, vínculo con Twitch y reinicio forzado */
   .config-control{
@@ -228,7 +218,6 @@
     .stream-controls{ position:static; margin-top:10px; display:flex; justify-content:center; }
     .config-control{ right:auto; left:50%; transform:translateX(-50%); }
   }
-  body.modo-vista .oculto-en-vista{ display:none !important; }
 </style>
 </head>
 <body>
@@ -253,21 +242,18 @@
 
 <button id="envivoBtn"><span class="dot"></span><span class="text">EN VIVO</span></button>
 
-<div class="stream-controls oculto-en-vista">
+<div class="modo-tabs">
+  <div class="modo-tab active" id="tabChat">MODO CHAT</div>
+  <div class="modo-tab" id="tabManual">MODO MANUAL</div>
+</div>
+
+</div><!-- /#panel -->
+
+<div class="stream-controls">
   <span class="twitch-light off" id="twitchLight" title="Twitch: no vinculado"></span>
   <button class="icon-btn" id="gear" title="Ajustes">⚙️</button>
 
   <div class="config-control" id="configControls">
-
-    <div class="config-section">
-      <div class="sec-title">Modo de votación</div>
-      <div class="modo-tabs">
-        <div class="modo-tab active" id="tabChat">MODO CHAT</div>
-        <div class="modo-tab" id="tabManual">MODO MANUAL</div>
-      </div>
-    </div>
-
-    <hr>
 
     <div class="config-section">
       <div class="sec-title">Tiempo de votación</div>
@@ -299,8 +285,6 @@
 
   </div>
 </div>
-
-</div><!-- /#panel -->
 
 <!-- Aviso de error global visible en pantalla: si CUALQUIER cosa del script
      de abajo lanza una excepción, ya no queda una página en blanco sin
@@ -789,14 +773,6 @@ function setLuzTwitch(estado){
   twitchLight.title = textos[estado] || '';
 }
 
-// URL única registrada en la app de Twitch (dev.twitch.tv/console/apps).
-// Todos los widgets (perks.html, survivor.html, killer.html, contador.html…)
-// piden a Twitch que vuelva SIEMPRE aquí, en una ventana emergente, en vez
-// de a su propia URL. Así solo hace falta tener esta URL en la lista de
-// "OAuth Redirect URLs" de Twitch, y cualquier widget nuevo se vincula sin
-// tener que tocar nada en la consola de Twitch.
-const TWITCH_OAUTH_HUB_URL = 'https://pintafon.github.io/ruleta-perks/Ruleta_Perks_killer_perks.html';
-
 sessionBtn.addEventListener('click', ()=>{
   if(session.conectado){
     cerrarSesionTwitch();
@@ -808,36 +784,14 @@ sessionBtn.addEventListener('click', ()=>{
 
   const params = new URLSearchParams({
     client_id: TWITCH_CLIENT_ID,
-    redirect_uri: TWITCH_OAUTH_HUB_URL,
+    redirect_uri: redirectUri(),
     response_type: 'token',
     scope: TWITCH_SCOPES,
     state
   });
-  // Abre una ventana emergente con la pantalla oficial de Twitch. Se abre en
-  // popup (en vez de navegar esta misma pestaña) para poder recibir el
-  // resultado por postMessage cuando Twitch redirija de vuelta a la URL
-  // del hub.
-  const popup = window.open(
-    `https://id.twitch.tv/oauth2/authorize?${params.toString()}`,
-    'twitchOAuthPopup',
-    'width=500,height=680'
-  );
-  if(!popup){
-    setStatus('El navegador bloqueó la ventana emergente de Twitch. Permite ventanas emergentes para esta página e inténtalo de nuevo.', 'err');
-    return;
-  }
-  setLuzTwitch('conectando');
-  setStatus('Esperando autorización en la ventana de Twitch…');
-});
-
-/* Recibe el resultado de la vinculación desde la ventana emergente del hub
-   (Ruleta_Perks_killer_perks.html), que es la única URL registrada en la
-   app de Twitch. */
-window.addEventListener('message', (e)=>{
-  if(e.origin !== location.origin) return;
-  const d = e.data || {};
-  if(d.type !== 'twitchOAuthResult') return;
-  procesarResultadoOAuth(d.access_token, d.state, d.error);
+  // Redirige a Twitch: aquí es donde el streamer ve la pantalla oficial de
+  // "obtener permisos de Twitch" y la concede con un clic.
+  window.location.href = `https://id.twitch.tv/oauth2/authorize?${params.toString()}`;
 });
 
 /* Espera a que la librería tmi.js esté disponible, por si tarda en llegar
@@ -918,12 +872,36 @@ function cerrarSesionTwitch(){
   setLuzTwitch('off');
 }
 
-/* Valida el "state" recibido, confirma el token con la API de Twitch y
-   conecta el chat. La usan tanto el flujo nuevo (mensaje desde la ventana
-   emergente del hub) como el flujo antiguo por si acaso (ver más abajo). */
-async function procesarResultadoOAuth(accessToken, state, error){
-  const expectedState = sessionStorage.getItem(OAUTH_STATE_KEY);
-  sessionStorage.removeItem(OAUTH_STATE_KEY);
+/* Al volver de Twitch, el token llega en el fragmento de la URL (#access_token=...).
+   Se lee una sola vez, se limpia de la URL inmediatamente y se usa para conectar solo. */
+async function manejarRegresoDeTwitch(){
+  if(!location.hash || location.hash.length < 2) return;
+  const hashParams = new URLSearchParams(location.hash.slice(1));
+  const accessToken = hashParams.get('access_token');
+  const state = hashParams.get('state');
+  const error = hashParams.get('error_description');
+
+  // Limpiar el hash de la URL de inmediato (el token no debe quedar visible ni en el historial)
+  history.replaceState(null, '', redirectUri());
+
+  // Esta página es el único "hub" de OAuth registrado en la app de Twitch.
+  // Si otro widget (perks.html, survivor.html, etc.) nos abrió en una
+  // ventana emergente para vincularse, no nos conectamos aquí: solo
+  // reenviamos el resultado (token, state o error) a esa ventana mediante
+  // postMessage y nos cerramos. Si esta página se abrió directamente (sin
+  // opener), seguimos el flujo normal de siempre, más abajo.
+  const esPopupDeOtroWidget = !!(window.opener && window.opener !== window);
+  if(esPopupDeOtroWidget){
+    try{
+      window.opener.postMessage(
+        { type:'twitchOAuthResult', access_token: accessToken, state, error },
+        location.origin
+      );
+    }catch(e){ /* si falla el postMessage no hay nada más que hacer aquí */ }
+    setStatus(error ? `Twitch denegó el acceso: ${error}` : 'Vinculación completada, puedes cerrar esta ventana…', error ? 'err' : 'ok');
+    setTimeout(()=>{ try{ window.close(); }catch(e){} }, error ? 0 : 600);
+    return;
+  }
 
   if(error){
     setStatus(`Twitch denegó el acceso: ${error}`, 'err');
@@ -932,13 +910,16 @@ async function procesarResultadoOAuth(accessToken, state, error){
   }
   if(!accessToken) return;
 
+  setLuzTwitch('conectando');
+
+  const expectedState = sessionStorage.getItem(OAUTH_STATE_KEY);
+  sessionStorage.removeItem(OAUTH_STATE_KEY);
   if(!state || state !== expectedState){
     setStatus('No se pudo verificar la respuesta de Twitch, inténtalo de nuevo.', 'err');
     setLuzTwitch('off');
     return;
   }
 
-  setLuzTwitch('conectando');
   setStatus('Verificando cuenta de Twitch…');
   try{
     const resp = await fetch('https://api.twitch.tv/helix/users', {
@@ -968,21 +949,6 @@ async function procesarResultadoOAuth(accessToken, state, error){
   }
 }
 
-/* Compatibilidad: si esta página llegara a recibir el token directamente en
-   el fragmento de su propia URL (#access_token=...) — por ejemplo, si
-   quedara una versión antigua registrada como redirect URL en Twitch — se
-   procesa igual, limpiando el hash primero. Con el hub, esto normalmente
-   ya no ocurre. */
-async function manejarRegresoDeTwitch(){
-  if(!location.hash || location.hash.length < 2) return;
-  const hashParams = new URLSearchParams(location.hash.slice(1));
-  const accessToken = hashParams.get('access_token');
-  const state = hashParams.get('state');
-  const error = hashParams.get('error_description');
-  history.replaceState(null, '', redirectUri());
-  await procesarResultadoOAuth(accessToken, state, error);
-}
-
 /* Por seguridad: si se cierra o recarga la pestaña, se corta la sesión y se borra el
    token de memoria (no hay localStorage/cookies del token de por medio, así que esto ya
    ocurre solo, pero desconectamos el cliente de Twitch de forma explícita). */
@@ -993,88 +959,6 @@ window.addEventListener('beforeunload', ()=>{
 
 manejarRegresoDeTwitch();
 
-/* --- Comunicación con la botonera (panel padre) --- */
-window.addEventListener('message', function(e){
-  const d = e.data || {};
-  if(d.type === 'setMode'){
-    document.body.classList.toggle('modo-vista', d.mode === 'view');
-  } else if(d.type === 'clickEnVivo'){
-    // El panel reenvía aquí el clic sobre EN VIVO cuando el candado de esta
-    // app está cerrado (el overlay de bloqueo del panel impide el clic
-    // directo). Simplemente pulsamos el botón real: así EN VIVO sigue
-    // funcionando incluso con Perks bloqueado, sin tocar nada más.
-    envivoBtn.click();
-  }
-});
-
-/* --- Reporta al panel el tamaño real del contenido, para que pueda
-   escalarlo (zoom) sin recortarlo al redimensionar la ventana --- */
-(function(){
-  var SELECTORES = ['#panel', '.stream-controls'];
-  var MARGEN = 12;
-  var pendiente = false;
-  function medir(){
-    var left=Infinity, top=Infinity, right=-Infinity, bottom=-Infinity, hayAlgo=false;
-    SELECTORES.forEach(function(sel){
-      document.querySelectorAll(sel).forEach(function(el){
-        var cs = getComputedStyle(el);
-        if(cs.display === 'none' || cs.visibility === 'hidden') return;
-        var r = el.getBoundingClientRect();
-        if(r.width === 0 && r.height === 0) return;
-        hayAlgo = true;
-        if(r.left < left) left = r.left;
-        if(r.top < top) top = r.top;
-        if(r.right > right) right = r.right;
-        if(r.bottom > bottom) bottom = r.bottom;
-      });
-    });
-    if(!hayAlgo || right <= left || bottom <= top) return;
-    try{
-      parent.postMessage({
-        type:'contentSize',
-        left: Math.floor(left) - MARGEN,
-        top: Math.floor(top) - MARGEN,
-        right: Math.ceil(right) + MARGEN,
-        bottom: Math.ceil(bottom) + MARGEN
-      }, '*');
-    }catch(e){}
-  }
-  // Reporta la posición exacta (sin margen) del botón EN VIVO, para que el
-  // panel pueda dibujar encima de su overlay de bloqueo un "agujero"
-  // clickeable del mismo tamaño y en el mismo sitio, y así ese botón siga
-  // funcionando aunque Perks esté bloqueada con el candado.
-  function medirBotonEnVivo(){
-    var btn = document.getElementById('envivoBtn');
-    if(!btn) return;
-    var r = btn.getBoundingClientRect();
-    if(r.width === 0 && r.height === 0) return;
-    try{
-      parent.postMessage({
-        type:'liveButtonRect',
-        left: Math.floor(r.left),
-        top: Math.floor(r.top),
-        right: Math.ceil(r.right),
-        bottom: Math.ceil(r.bottom)
-      }, '*');
-    }catch(e){}
-  }
-  function medirTodo(){ medir(); medirBotonEnVivo(); }
-  function solicitarMedicion(){
-    if(pendiente) return;
-    pendiente = true;
-    requestAnimationFrame(function(){ pendiente = false; medirTodo(); });
-  }
-  window.addEventListener('load', medirTodo);
-  setTimeout(medirTodo, 300);
-  setTimeout(medirTodo, 1000);
-  setTimeout(medirTodo, 2500);
-  if(window.ResizeObserver){
-    var ro = new ResizeObserver(solicitarMedicion);
-    SELECTORES.concat(['#envivoBtn']).forEach(function(sel){
-      document.querySelectorAll(sel).forEach(function(el){ ro.observe(el); });
-    });
-  }
-})();
 </script>
 </body>
 </html>
