@@ -119,6 +119,14 @@
   }
   .overlay-candado.activo{ display:block; }
 
+  /* Para Killer y Survivor el bloqueo se hace DENTRO de cada iframe (así el
+     botón GIRAR y el "Cerrar ganador" siguen funcionando sin depender de
+     cálculos de posición/zoom desde aquí). Este overlay se muestra igual
+     (por si se quiere reutilizar visualmente) pero nunca intercepta clics. */
+  .overlay-candado.overlay-candado-passthrough{
+    pointer-events:none !important;
+  }
+
   /* Agujero clickeable sobre el botón EN VIVO real de Perks: se dibuja
      encima del candado (z-index mayor) y reenvía el clic al iframe por
      postMessage, así ese botón sigue respondiendo aunque Perks esté
@@ -352,7 +360,11 @@
       <div class="marco-iframe">
         <iframe id="frame-survivor" src="survivor.html" title="Survivor Roulette"></iframe>
         <div class="overlay-arrastre"></div>
-        <div class="overlay-candado"></div>
+        <!-- El bloqueo de Survivor se hace DENTRO del propio iframe (recibe
+             el mensaje 'setBloqueo' y bloquea todo menos su botón GIRAR y su
+             botón "Cerrar ganador"), así que aquí no se bloquea nada: los
+             clics pasan directos al iframe. -->
+        <div class="overlay-candado overlay-candado-passthrough"></div>
       </div>
       <div class="asa-resize asa-tl"></div>
       <div class="asa-resize asa-tr"></div>
@@ -365,12 +377,11 @@
       <div class="marco-iframe">
         <iframe id="frame-killer" src="killer.html" title="Killer Roulette"></iframe>
         <div class="overlay-arrastre"></div>
-        <div class="overlay-candado"></div>
-        <!-- "Agujero" clickeable que se coloca justo encima del botón GIRAR
-             real (dentro del iframe de Killer Roulette). Solo se activa
-             cuando el candado de Killer Roulette está cerrado, para que el
-             botón siga funcionando aunque el resto quede bloqueado. -->
-        <div class="overlay-envivo-proxy" id="proxyGirarKiller" title="GIRAR"></div>
+        <!-- El bloqueo de Killer se hace DENTRO del propio iframe (recibe el
+             mensaje 'setBloqueo' y bloquea todo menos su botón GIRAR y el
+             ganador ampliado), así que aquí no se bloquea nada: los clics
+             pasan directos al iframe. -->
+        <div class="overlay-candado overlay-candado-passthrough"></div>
       </div>
       <div class="asa-resize asa-tl"></div>
       <div class="asa-resize asa-tr"></div>
@@ -514,7 +525,7 @@
     });
     enviarModo(frames[nombre], modoEfectivo(nombre));
     if(nombre === 'perks') actualizarProxyEnVivo();
-    if(nombre === 'killer') actualizarProxyGirarKiller();
+    if(nombre === 'killer' || nombre === 'survivor') enviarBloqueo(nombre, bloqueado);
   }
 
   botonesCandado.forEach(btn=>{
@@ -579,7 +590,6 @@
 
     escalasActuales[nombre] = { escala, offsetX, offsetY, rect };
     if(nombre === 'perks') actualizarProxyEnVivo();
-    if(nombre === 'killer') actualizarProxyGirarKiller();
   }
 
   // Recibe el tamaño real de contenido que reporta cada ruleta, y también
@@ -597,11 +607,6 @@
         liveButtonRectPerks = { left:d.left, top:d.top, right:d.right, bottom:d.bottom };
         actualizarProxyEnVivo();
       }
-    } else if(d.type === 'liveButtonRectKiller'){
-      if(frames.killer && e.source === frames.killer.contentWindow){
-        liveButtonRectKiller = { left:d.left, top:d.top, right:d.right, bottom:d.bottom };
-        actualizarProxyGirarKiller();
-      }
     }
   });
 
@@ -613,7 +618,6 @@
      con la misma escala/offset que usa el iframe), y al pulsarlo le
      reenviamos el clic a Perks por postMessage en vez de tocarlo directamente. */
   const proxyEnVivoPerks = document.getElementById('proxyEnVivoPerks');
-  const proxyGirarKiller = document.getElementById('proxyGirarKiller');
 
   function actualizarProxyEnVivo(){
     const calc = escalasActuales.perks;
@@ -642,33 +646,19 @@
     }
   });
 
-  /* ================= AGUJERO CLICKEABLE PARA EL BOTÓN "GIRAR" DE KILLER
-     ROULETTE (mismo mecanismo que el de "EN VIVO" de Perks, ver arriba) ==== */
-  let liveButtonRectKiller = null;
-
-  function actualizarProxyGirarKiller(){
-    const calc = escalasActuales.killer;
-    if(!calc || !liveButtonRectKiller){
-      proxyGirarKiller.classList.remove('activo');
-      return;
+  /* ================= BLOQUEO DE KILLER Y SURVIVOR =================
+     A diferencia de Perks (arriba), para Killer y Survivor el bloqueo NO se
+     hace con un "agujero" calculado por geometría (dependía de escalas/zoom
+     y era frágil). En su lugar, simplemente se le avisa a cada iframe si su
+     candado está cerrado o no, y es el propio iframe el que bloquea todo su
+     contenido excepto su botón GIRAR (y su botón de cerrar ganador, en el
+     caso de Survivor) usando CSS. Esto es inmune a desajustes de zoom. */
+  function enviarBloqueo(nombre, bloqueado){
+    const frame = frames[nombre];
+    if(frame && frame.contentWindow){
+      try{ frame.contentWindow.postMessage({ type:'setBloqueo', locked: !!bloqueado }, '*'); }catch(e){}
     }
-    const { escala, offsetX, offsetY, rect } = calc;
-    const left   = offsetX + escala * (liveButtonRectKiller.left  - rect.left);
-    const top    = offsetY + escala * (liveButtonRectKiller.top   - rect.top);
-    const ancho  = escala * (liveButtonRectKiller.right  - liveButtonRectKiller.left);
-    const alto   = escala * (liveButtonRectKiller.bottom - liveButtonRectKiller.top);
-    proxyGirarKiller.style.left   = left   + 'px';
-    proxyGirarKiller.style.top    = top    + 'px';
-    proxyGirarKiller.style.width  = ancho  + 'px';
-    proxyGirarKiller.style.height = alto   + 'px';
-    proxyGirarKiller.classList.toggle('activo', !!candados.killer);
   }
-
-  proxyGirarKiller.addEventListener('click', ()=>{
-    if(frames.killer && frames.killer.contentWindow){
-      frames.killer.contentWindow.postMessage({ type:'clickGirar' }, '*');
-    }
-  });
 
   // Recalcula el zoom cada vez que el hueco disponible cambia de tamaño
   // (al redimensionar la ventana con el asa, o al cambiar el tamaño del navegador)
@@ -766,6 +756,12 @@
     frames[nombre].addEventListener('load', ()=>{
       const ventana = frames[nombre].closest('.ventana');
       if(ventana && ventana.classList.contains('activo')) enviarModo(frames[nombre], modoEfectivo(nombre));
+      // Si el iframe se recarga (o carga por primera vez) mientras su
+      // candado ya estaba cerrado, hay que volver a avisarle: si no, el
+      // mensaje 'setBloqueo' original se perdió (el iframe aún no tenía
+      // el listener registrado) y el botón GIRAR podía quedar sin la
+      // excepción de pointer-events que lo mantiene siempre usable.
+      if(nombre === 'killer' || nombre === 'survivor') enviarBloqueo(nombre, candados[nombre]);
     });
   });
 

@@ -296,6 +296,21 @@
   animation:energySpin 1.2s linear infinite;
 }
 body.modo-vista .oculto-en-vista{ display:none !important; }
+/* ===== BLOQUEO POR CANDADO (desde panel.html) =====
+   Cuando el candado de Survivor Roulette está cerrado, panel.html manda
+   {type:'setBloqueo', locked:true} y aquí bloqueamos por completo la
+   interacción con TODO el contenido, excepto el botón GIRAR y el botón
+   "Cerrar ganador" (para poder seguir cerrando al ganador con un clic).
+   Así el clic no depende de ningún cálculo de posición/zoom hecho desde
+   fuera: pasa siempre directo al botón real, dentro de este documento. */
+body.candado-cerrado *{
+    pointer-events:none !important;
+}
+body.candado-cerrado #spinBtn,
+body.candado-cerrado #spinBtn *,
+body.candado-cerrado #closeWinnerBtn{
+    pointer-events:auto !important;
+}
 </style>
 </head>
 <body>
@@ -1073,6 +1088,8 @@ window.addEventListener('message', function(e){
     document.body.classList.toggle('modo-vista', d.mode === 'view');
   } else if(d.type === 'clickGirarSurvivor'){
     spinBtn.click();
+  } else if(d.type === 'setBloqueo'){
+    document.body.classList.toggle('candado-cerrado', !!d.locked);
   }
 });
 
