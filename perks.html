@@ -790,11 +790,12 @@ function setLuzTwitch(estado){
 }
 
 // URL única registrada en la app de Twitch (dev.twitch.tv/console/apps).
-// Todos los widgets (perks.html, survivor.html, killer.html, contador.html…)
-// piden a Twitch que vuelva SIEMPRE aquí, en una ventana emergente, en vez
-// de a su propia URL. Así solo hace falta tener esta URL en la lista de
-// "OAuth Redirect URLs" de Twitch, y cualquier widget nuevo se vincula sin
-// tener que tocar nada en la consola de Twitch.
+// ANTES: todos los widgets pedían a Twitch que volviera siempre a esta URL
+// "hub" en una ventana emergente. Se ha dejado de usar ese flujo (ver más
+// abajo) porque OBS Browser Source bloquea SIEMPRE las ventanas emergentes
+// (window.open) sin ninguna opción para permitirlas, así que dentro de OBS
+// nunca llegaba a abrirse. Se deja la constante solo por si se quisiera
+// recuperar el flujo antiguo en otro contexto (fuera de OBS).
 const TWITCH_OAUTH_HUB_URL = 'https://pintafon.github.io/ruleta-perks/Ruleta_Perks_killer_perks.html';
 
 sessionBtn.addEventListener('click', ()=>{
@@ -808,31 +809,37 @@ sessionBtn.addEventListener('click', ()=>{
 
   const params = new URLSearchParams({
     client_id: TWITCH_CLIENT_ID,
-    redirect_uri: TWITCH_OAUTH_HUB_URL,
+    redirect_uri: redirectUri(),
     response_type: 'token',
     scope: TWITCH_SCOPES,
     state
   });
-  // Abre una ventana emergente con la pantalla oficial de Twitch. Se abre en
-  // popup (en vez de navegar esta misma pestaña) para poder recibir el
-  // resultado por postMessage cuando Twitch redirija de vuelta a la URL
-  // del hub.
-  const popup = window.open(
-    `https://id.twitch.tv/oauth2/authorize?${params.toString()}`,
-    'twitchOAuthPopup',
-    'width=500,height=680'
-  );
-  if(!popup){
-    setStatus('El navegador bloqueó la ventana emergente de Twitch. Permite ventanas emergentes para esta página e inténtalo de nuevo.', 'err');
-    return;
-  }
+  // Navega ESTA MISMA página (este iframe) a la pantalla oficial de Twitch,
+  // en vez de abrir una ventana emergente. Es imprescindible dentro de OBS:
+  // el Browser Source de OBS bloquea SIEMPRE los popups (window.open) y no
+  // tiene ninguna opción en su interfaz para permitirlos, así que el flujo
+  // antiguo con ventana emergente nunca podía funcionar ahí (por eso salía
+  // "El navegador bloqueó la ventana emergente de Twitch").
+  //
+  // Al navegar directamente, Twitch redirige de vuelta a esta misma URL
+  // con el token en el fragmento (#access_token=...), y
+  // manejarRegresoDeTwitch() (más abajo) lo recoge automáticamente en
+  // cuanto la página vuelve a cargar. No hace falta ninguna ventana ni
+  // ningún postMessage.
+  //
+  // IMPORTANTE: para que esto funcione, la URL exacta donde vive este
+  // archivo (perks.html) tiene que estar añadida en "OAuth Redirect URLs"
+  // dentro de tu app en https://dev.twitch.tv/console/apps
+  // (normalmente: https://pintafon.github.io/ruleta-perks/perks.html)
   setLuzTwitch('conectando');
-  setStatus('Esperando autorización en la ventana de Twitch…');
+  setStatus('Redirigiendo a Twitch para autorizar…');
+  window.location.href = `https://id.twitch.tv/oauth2/authorize?${params.toString()}`;
 });
 
-/* Recibe el resultado de la vinculación desde la ventana emergente del hub
-   (Ruleta_Perks_killer_perks.html), que es la única URL registrada en la
-   app de Twitch. */
+/* Compatibilidad con el flujo antiguo por ventana emergente (hub +
+   postMessage), por si en algún sitio se siguiera usando fuera de OBS. Con
+   la redirección directa de arriba esto ya no hace falta, pero no molesta
+   dejarlo: si nunca llega un mensaje de este tipo, simplemente no hace nada. */
 window.addEventListener('message', (e)=>{
   if(e.origin !== location.origin) return;
   const d = e.data || {};
