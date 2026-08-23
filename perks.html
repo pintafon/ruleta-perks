@@ -854,9 +854,13 @@ sessionBtn.addEventListener('click', ()=>{
 
 /* Recibe el resultado de la vinculación desde la ventana emergente del hub
    (Ruleta_Perks_killer_perks.html), que es la única URL registrada en la
-   app de Twitch. */
+   app de Twitch. Se valida contra el origen REAL del hub (no el nuestro):
+   perks.html puede estar corriendo como archivo local en OBS, así que
+   comparar con location.origin propio nunca coincidiría y el mensaje se
+   descartaría siempre, aunque llegase bien. */
+const TWITCH_OAUTH_HUB_ORIGIN = 'https://pintafon.github.io';
 window.addEventListener('message', (e)=>{
-  if(e.origin !== location.origin) return;
+  if(e.origin !== TWITCH_OAUTH_HUB_ORIGIN) return;
   const d = e.data || {};
   if(d.type !== 'twitchOAuthResult') return;
   procesarResultadoOAuth(d.access_token, d.state, d.error);

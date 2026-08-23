@@ -915,9 +915,17 @@ async function manejarRegresoDeTwitch(){
   const esPopupDeOtroWidget = !!(window.opener && window.opener !== window);
   if(esPopupDeOtroWidget){
     try{
+      // targetOrigin '*': el widget que abrió este popup (perks.html) puede
+      // estar corriendo como archivo local en OBS (origen "file://" o
+      // similar), no necesariamente en https://pintafon.github.io. Si aquí
+      // se exige que coincida con location.origin del hub, el navegador
+      // descarta el mensaje sin avisar y la vinculación nunca llega a
+      // completarse. El token ya es de un solo uso y se valida con "state"
+      // en el lado receptor, así que reenviarlo sin restricción de origen
+      // es seguro en este flujo.
       window.opener.postMessage(
         { type:'twitchOAuthResult', access_token: accessToken, state, error },
-        location.origin
+        '*'
       );
     }catch(e){ /* si falla el postMessage no hay nada más que hacer aquí */ }
     setStatus(error ? `Twitch denegó el acceso: ${error}` : 'Vinculación completada, puedes cerrar esta ventana…', error ? 'err' : 'ok');
