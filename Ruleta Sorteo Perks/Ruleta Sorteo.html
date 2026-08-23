@@ -1,0 +1,1010 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ruleta — grande, letras estilo foto, pointer igual (1000px)</title>
+
+<!-- Anton para texto grueso similar a la foto -->
+<link href="https://fonts.googleapis.com/2?family=Anton&display=swap" rel="stylesheet">
+
+<style>
+  :root{
+    --wheel-offset: 0px;
+    --btn-bg: #0b2a72;
+    --btn-bg-hover: #133b94;
+    --btn-border: #000;
+    --accent: #31d6ff;
+  }
+
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    min-height:100vh;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    background:radial-gradient(circle at 50% 50%, #8e38ff00 0%, #49177c00 30%, #1d103300 60%, #09061100 100%);
+    font-family: Arial, Helvetica, sans-serif;
+    padding:30px;
+  }
+
+  /* Layout */
+  .container{
+    display:grid;
+    grid-template-columns:1000px 1fr;
+    gap:20px;
+    align-items:start;
+    max-width:1400px;
+    width:100%;
+    transition: transform .25s ease;
+  }
+
+  @media (max-width:1000px){
+    .container{
+      grid-template-columns:1fr;
+      gap:18px;
+    }
+  }
+
+  .wheel-wrap{
+    position:relative;
+    width:1000px;
+    height:1000px;
+    margin:auto;
+    overflow:visible;
+    justify-self: center;
+    transform: translateX(var(--wheel-offset));
+  }
+  @media (max-width:1000px){
+    .wheel-wrap{width:820px;height:820px; transform: translateX(0); }
+    canvas{width:820px;height:820px}
+    .panel{min-height:820px}
+    .spin-btn{bottom:-72px}
+    :root { --wheel-offset: 0px; }
+  }
+
+  /* PUNTERO */
+  .pointer{
+    position:absolute;
+    top:50%;
+    left:10px;
+    transform:translateY(-50%);
+    width:0;height:0;z-index:100;
+    border-top:19px solid transparent;
+    border-bottom:19px solid transparent;
+    border-left:34px solid #ffe603;
+  }
+  .pointer::before,.pointer::after{ display:none; }
+
+  canvas{
+    width:1000px;height:1000px;border-radius:50%;display:block;
+    box-shadow:
+0 0 20px rgba(255,255,255,.9),
+0 0 60px rgba(255,255,255,.7),
+0 0 120px rgba(255,255,255,.4);
+  }
+
+  .spin-btn{
+    position:static;
+    transform:none;
+    background:#7d31ff;color:white;border:none;padding:14px 30px;border-radius:16px;font-weight:700;cursor:pointer;
+    box-shadow:0 6px 18px rgba(141,76,255,0.35);
+    z-index:80;
+  }
+  .spin-btn[disabled]{opacity:.6;cursor:not-allowed}
+
+  /* Panel derecho */
+  .panel{
+    background:rgba(255,255,255,0.03);
+    padding:16px;border-radius:12px;border:1px solid rgba(255,255,255,0.04);
+    min-height:1000px;
+  }
+  .panel h3{color:#fff;text-align:center;margin-bottom:8px}
+
+  /* --- Nueva botonera estilizada --- */
+  .controls { display:flex; flex-direction:column; gap:12px; margin-bottom:12px; }
+
+  .control-row{ display:flex; gap:12px; align-items:center; }
+
+  .btn{
+    background: linear-gradient(180deg,var(--btn-bg), #072052);
+    color:#fff;
+    border:4px solid var(--btn-border);
+    border-radius:12px;
+    padding:12px 18px;
+    font-weight:800;
+    font-size:16px;
+    cursor:pointer;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-height:52px;
+    transition: transform .08s ease, background .12s ease;
+  }
+  .btn:hover{ background: var(--btn-bg-hover); transform: translateY(-2px); }
+  .btn:active{ transform: translateY(1px); }
+
+  .input-compact{
+    background:#ffffff;
+    color:#000;
+    border:4px solid var(--btn-border);
+    border-radius:12px;
+    padding:10px 14px;
+    min-height:52px;
+    font-weight:700;
+    text-align:center;
+    box-sizing:border-box;
+  }
+
+  #newLabel{
+    box-sizing:border-box;
+    width:100%;
+    min-width:160px;
+    padding:12px;
+    height:52px;
+    border-radius:12px;
+    border:4px solid var(--btn-border);
+    font-size:18px;
+    font-weight:700;
+    background:#fff;color:#000;
+  }
+
+  #addBtn{ min-width:120px; padding:12px 16px; }
+  #settingsBtn{ width:64px; min-width:64px; border-radius:10px; font-size:22px; padding:0; }
+
+  .control-row .input-compact.small{ width:80px; padding:10px; font-size:18px; font-weight:800; }
+
+  .row-spread{ display:flex; gap:12px; justify-content:space-between; align-items:center; }
+
+  /* lista */
+  .list-container{
+      background:#d0d0d0;
+      padding:8px;
+      border-radius:8px;
+      color:#000000;
+      max-height: none;
+      overflow-y: auto;
+      overflow-x: hidden;
+      transition: max-height .12s ease;
+      box-sizing: border-box;
+      margin-top:8px;
+  }
+
+  .item{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    height:40px;
+    padding:4px 8px;
+    margin-bottom:6px;
+    border-radius:6px;
+    background:#d0d0d0;
+    color:#000000;
+    font-size:24px;
+    font-weight:800;
+  }
+
+  .remove-btn{
+    background:#ff3b30;border:none;color:#fff;padding:6px 8px;border-radius:6px;cursor:pointer;
+  }
+
+  /* estilos heredados (compatibilidad con tu CSS original) */
+  .fileBtn{
+    display:inline-block;
+    padding:12px 24px;
+    background:#0b1f4d;
+    color:#ffffff;
+    border:3px solid #000000;
+    border-radius:12px;
+    font-family:Arial, sans-serif;
+    font-size:16px;
+    font-weight:bold;
+    cursor:pointer;
+    text-align:center;
+    box-shadow:0 4px 8px rgba(0,0,0,.35);
+    transition:all .2s ease;
+  }
+  .fileBtn:hover{ transform:translateY(-2px); }
+  .fileBtn:active{ transform:translateY(1px); }
+
+  @media (max-width:640px){
+    .control-row{ flex-direction:column; align-items:stretch; }
+    .row-spread{ flex-direction:column; align-items:stretch; }
+    .btn{ width:100%; }
+    .input-compact.small{ width:100%; }
+    #newLabel{ width:100%; }
+  }
+
+  /* Ajuste final para mantener compatibilidad con clases antiguas */
+  #addPerksCount, #removePerksCount { box-sizing:border-box; }
+@keyframes energySpin {
+  from {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+  to {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+
+#energyRing{
+  mix-blend-mode:screen;
+  opacity:0.95;
+  filter:
+    drop-shadow(0 0 10px #00c8ff)
+    drop-shadow(0 0 25px #00c8ff)
+    drop-shadow(0 0 45px #00c8ff);
+}
+
+#energyRing.active{
+  display:block;
+  animation:energySpin 1.2s linear infinite;
+}
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <div class="wheel-wrap">
+    <div class="pointer" aria-hidden="true"></div><div class="pointer" aria-hidden="true"></div>
+
+
+
+ 
+    <canvas id="wheel" width="1000" height="1000"></canvas>
+
+    <div id="winnerLabel"
+      style="position:absolute; left:50%; top:calc(50% + 150px); transform:translateX(-50%); pointer-events:none; width:460px; text-align:center">
+    </div>
+
+    <button id="closeWinnerBtn" style="display:none; position:absolute; width:180px; height:52px; background:#0b2a72; color:#ffffff; border:4px solid #000000; border-radius:14px; font-family:Arial,sans-serif; font-size:18px; font-weight:bold; cursor:pointer; z-index:999;">
+      Cerrar ganador
+    </button>
+  </div>
+
+  <div class="panel">
+    <h3 style="display:none;">Editar Ruleta</h3>
+
+    <!-- ======= CONTROLES REORDENADOS ======= -->
+    <div class="controls">
+      <!-- fila 1: Añadir | input | settings -->
+      <div class="control-row">
+        <button id="addBtn" class="btn">Añadir</button>
+        <input id="newLabel" type="text" placeholder="Nueva Perk" />
+        <button id="settingsBtn" class="btn">⚙️</button>
+
+        <!-- settingsPanel mantiene el mismo ID y contenido -->
+        <div id="settingsPanel" style="display:flex;align-items:center;justify-content:center;gap:8px;width:180px;height:52px;background:#e9e9e9;border:4px solid #000000;border-radius:14px;box-sizing:border-box;font-family:Arial,sans-serif;font-size:18px;font-weight:bold;color:#000000;padding:0;">
+          <span>Tiempo:</span>
+          <input id="spinDurationInput" type="number" min="1" max="60" value="2" style="width:50px;height:28px;margin:0;padding:0;text-align:center;font-size:18px;font-weight:bold;border:2px solid #000000;border-radius:4px;background:#ffffff;color:#000000;box-sizing:border-box;vertical-align:middle;">
+          <span>seg</span>
+        </div>
+      </div>
+
+      <!-- fila 2: añadir perks random | cantidad | quitar perks random | cantidad -->
+      <div class="control-row">
+        <button id="addPerksBtn" class="btn">➕ Perks Random</button>
+        <input id="addPerksCount" class="input-compact small" type="number" value="9" min="1" />
+        <button id="removePerksBtn" class="btn">➖ Perks Random</button>
+        <input id="removePerksCount" class="input-compact small" type="number" value="4" min="1" />
+      </div>
+
+      <!-- fila 3: borrar todo | seleccionar imágenes | girar -->
+      <div class="control-row row-spread">
+        <button id="clearBtn" class="btn" style="flex:1;margin-right:6px;">Borrar Todo</button>
+
+        <label for="files" class="btn" style="flex:1;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;">
+          Seleccionar imágenes
+        </label>
+
+        <button id="spinBtn" class="btn" style="flex:1;margin-left:6px;background:var(--accent);">GIRAR</button>
+
+        <input type="file" id="files" multiple accept="image/*" style="display:none;">
+      </div>
+    </div>
+    <!-- ======= FIN CONTROLES ======= -->
+
+    <div class="list-container" id="labelsList" aria-live="polite"></div>
+  </div>
+</div>
+
+<script>
+/* Larger wheel (1000px), DPI handling; vertical stacked letters with bold Anton + white stroke to mimic photo.
+   Pointer replaced via CSS. */
+
+/* He mantenido TODO tu JavaScript original sin cambios (IDs intactos). Copio tu script tal cual. */
+const canvas = document.getElementById('wheel');
+const ctx = canvas.getContext('2d');
+const spinBtn = document.getElementById('spinBtn');
+const winnerLabel = document.getElementById('winnerLabel');
+const closeWinnerBtn = document.getElementById('closeWinnerBtn');
+const energyRing = null;
+const newLabel = document.getElementById('newLabel');
+const addBtn = document.getElementById('addBtn');
+const filesInput = document.getElementById('files');
+const labelsList = document.getElementById('labelsList');
+const clearBtn = document.getElementById('clearBtn');
+const addPerksBtn = document.getElementById('addPerksBtn');
+const removePerksBtn = document.getElementById('removePerksBtn');
+
+// PERKS POR DEFECTO - Se cargan al iniciar
+let labels = [
+"Ganas De Vivir",
+"Resiliencia",
+"Empatía",
+"Distracción",
+"Campeón de la Luz",
+"Caída Equilibrada",
+"Ágil",
+"Inspiración de bárdica",
+"Hasta Otra",
+"Acelerador a Fondo",
+"Cinco pasos por Delante",
+"Tenacidad",
+"Fuga",
+"Construcción Duradera",
+"Hecho para Esto",
+"Engaño",
+"Hiperconcentración",
+"Liberación",
+"Dramaturgia",
+"Lucha de intensa",
+"Pasión",
+"Círculo de curación",
+"Me la Pela",
+"Convicción",
+"Vigilia",
+"Deja Vu",
+"Evasión Urbana",
+"Sutileza",
+"Neblinoso",
+"Notas Fantasmales",
+"Slot vacio",
+"Baila conmigo",
+"De Frente",
+"Voluntad de Hierro",
+"chayanne",
+"Fijación",
+"Sabotear",
+"Energía Potencial",
+"Mina explosiva",
+"Contrafuerza",
+"Solucionador de Problemas",
+"Inquebrantable",
+"Cueste Lo Que Cueste",
+"Adrenalina",
+"Ligera De Pies",
+"Exultación",
+"Esprint",
+"Fuerza Interior",
+"Unidos Por La Obsesión",
+"Resurgimiento",
+"Fajador",
+"Estado de Fluido",
+"Giro Argumental",
+"Éxito Aplastante",
+"Carga Sobre Los Hombros"
+];
+
+let images = new Array(labels.length).fill(null);
+let imagesObjs = new Array(labels.length).fill(null);
+
+const colors = [
+"#ff2828",
+"#ff7b00",
+"#ffe600",
+"#00d43b",
+"#00b7ff",
+"#2342ff",
+"#c22fff"
+];
+const allPerks = [
+"Abandonado a tu Suerte","Sujétate","Medida Correctiva","Acelerador a Fondo","Adrenalina","Alerta","Supresión de Alianza","As en la Manga","Con Calle","Caída Equilibrada","Subir Las Apuestas","Autocuración","Autodidacta","Autoconservación","Ruptura","Bada Bada Bum","Baila conmigo","Bendición Exponencial","Solucionador de Problemas","Camaradería","Cambio de Planes","Campeón de la Luz","Carne Resbaladiza","Buscador","Cinco pasos por Delante","Clarividencia","Compañero de Escena","Rivalidad Amistosa","Serenidad","Conexión Empática","Conocimientos de Botánica","Contrafuerza","Contrainterrogatorio","Convicción","Desátame","Postratamiento","Curación Reactiva","Círculo de curación","De Frente","Deber de Socorro","Engaño","Deja Vu","Demuéstra lo que Vales","Arrebato","Despierta","Sutileza","Distorsión","Distracción","Dramaturgia","Empatía","Curtida","Energía Potencial","Concentración Interna","Escalofríosca","Fuga","Interceptor","Especialista","Esperanza","Esprint","Espíritu Novato","Espíritu Calmado","Estado de Fluido","Esto No Puede Estar Pasao","Estrella de la Suerte","Evaluación","Evasión Urbana","Pasión","Exultación","Fajador","Farmacia","Fecha Límite","Fijación","Extraoficial","Fuerza en las Sombras","Fuerza Interior","Táctica Veloz","Giro Argumental","Golpe de Suerte","Ganas De Vivir","Éxito Aplastante","Granada Aturdidora","Salvaguardia del Alma","Guía Parental","Construcción Duradera","Hiperconcentración","Iluminación","Espejismo","Ingenio Apocalíptico","Inquebrantable","Inspiración de bárdica","Instinto de Saqueador","Invocación Cuervos Traicioneros","Invocación Arañas Tejedoras","Caza Menor","Jugador de Secundario","Liberación","De Pies Ligeros","Carga Sobre Los Hombros","Lo Conseguimos","Lucha de intensa","Líder","Manifestación Residual","A Mano Descubierta","Medidas Desesperadas","Mejor Juntos","Mejor que Nuevo","Mina explosiva","Momento de Gloria","Hecho para Esto","Nadie Queda Atrás","Canguro","No Hacer Daño","Notas Fantasmales","Unidos Por La Obsesión","Ojos de Belmont","Pacto de Sangre","Familia","Ligera de Pies","Paso sombrío","Percepción Extrasensorial","Perfil Bajo","Embrujada","Cueste Lo Que Cueste","Por Los Demás","Premonición","Corazonada","Torrente De Sangre","Reafirmación","Resiliencia","Respuesta Rápida","Resurgimiento","Separación Limpia","Velocidad Silenciosa","Neblinoso","Sabotear","Segundo Aliento","Percepción Oscura","Bulo","Me La Pela","Solidaridad","Sobreponerse","Te Vemos","El Temple del Hombre","Tenacidad","Bendición Teoría Oscura","Tiempo Prestado","Trabajo en equipo Circuito Completo","Trabajo en Equipo Al Derribo.webp","Trabajo en Equipo Curtirse.webp","Trabajo en Equipo Poder Dual","Trabajo en Equipo Sigilo Colectivo","Trabajo en Equipo Tono Suave.webp","De Tripas Corazón","Hechar Una Mano","Trampa Química","Pericia Técnica","Un Lugar para Nosotros","Uno Dos Tres Cuatro","Hasta Otra","Vamos a Vivir para Siempre","¡Ven A Por Mí!","Oportunidades","Vida en la Carretera","Bajo Vigilancia","Vigilia","Visión De Futuro","Visión Estática","Voluntad de Hierro","Primera Linea","Vínculo","Ágil","Última Defensa","Hasta El Último"
+];
+const perksFolder = "./";
+const gotasDBD = new Image();
+gotasDBD.src = "./gotas_dbd.png";
+const tickSound = new Audio("./tick.mp3");
+tickSound.volume = 0.35;
+
+let lastTickSector = -1;
+
+
+let rotation = 0;
+let isSpinning = false;
+let winnerIndex = null;
+let stopRequested = false;
+let spinDuration = 7;
+const settingsBtn = document.getElementById('settingsBtn');
+const settingsPanel = document.getElementById('settingsPanel');
+const spinDurationInput = document.getElementById('spinDurationInput');
+
+/* DPI scale */
+function setupCanvas(size=1000){
+  const dpr = Math.max(window.devicePixelRatio||1,1);
+  canvas.style.width = size + 'px';
+  canvas.style.height= size + 'px';
+  canvas.width = Math.floor(size * dpr);
+  canvas.height= Math.floor(size * dpr);
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+setupCanvas(1000);
+
+/* Utilities */
+function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } }
+function measureTextWidth(font, text){
+  ctx.font = font;
+  return ctx.measureText(text).width;
+}
+
+/* Precargar todas las imágenes */
+function preloadImages() {
+  labels.forEach((perkName, index) => {
+    const imagePath = perksFolder + perkName + ".webp";
+    const img = new Image();
+    img.src = imagePath;
+    imagesObjs[index] = img;
+    img.onerror = () => {
+      console.warn(`No se encontró imagen para: ${perkName} (${imagePath})`);
+    };
+    img.onload = () => {
+      console.log(`Imagen cargada: ${perkName}`);
+    };
+  });
+}
+
+/* Draw center (rombo) and winner label under it
+   NOW: only draw when there is a confirmed winner (winnerIndex !== null) and NOT spinning.
+   Otherwise hide/clear the winner area entirely. */
+function drawCenter(cx, cy, radius, idx){
+  let previewIndex = winnerIndex;
+
+if (isSpinning) {
+    const arc = (Math.PI * 2) / labels.length;
+    let angle = (Math.PI - rotation) % (2 * Math.PI);
+    if (angle < 0) angle += 2 * Math.PI;
+    previewIndex = Math.floor(angle / arc) % labels.length;
+}
+
+if (previewIndex === null && !isSpinning) {
+    winnerLabel.innerHTML = '';
+    closeWinnerBtn.style.display = 'none';
+    return;
+}
+
+  ctx.save(); 
+  ctx.translate(cx,cy);
+  const box = Math.max(110, Math.floor(radius*0.12));
+  ctx.save(); 
+  ctx.rotate(Math.PI/4);
+
+  ctx.shadowBlur = 44;
+  ctx.shadowColor = 'transparent';
+  ctx.shadowBlur = 0;
+ctx.shadowColor = "transparent";
+ctx.shadowOffsetX = 0;
+ctx.shadowOffsetY = 0;
+
+  const purple = ctx.createRadialGradient(
+    0, 0, 10,
+    0, 0, box * 1.4
+);
+
+purple.addColorStop(0.00, "#7a2cb1");
+purple.addColorStop(0.45, "#5a1b8a");
+purple.addColorStop(0.75, "#3c0f64");
+purple.addColorStop(1.00, "#24063f");
+
+ctx.fillStyle = purple;
+ctx.fillRect(-box,-box,box*2,box*2);
+  ctx.shadowBlur = 0;
+  ctx.lineWidth = 20;
+  ctx.strokeStyle = '#000000';
+  ctx.strokeRect(-box,-box,box*2,box*2);
+  
+
+
+  // Cargar imagen cuando el perk gana
+  if(typeof previewIndex === 'number' && previewIndex >= 0 && previewIndex < labels.length){
+    const perkName = labels[previewIndex];
+    const imagePath = perksFolder + perkName + ".webp";
+    
+    let img = imagesObjs[previewIndex];
+    
+    if(!img){
+      img = new Image();
+      img.src = imagePath;
+    imagesObjs[previewIndex] = img;
+    }
+    
+    // Si la imagen está cargada, mostrarla
+    if(img.complete && img.naturalWidth > 0){
+      ctx.save();
+      ctx.rotate(-Math.PI / 4);
+      
+      const w = box * 2.6;
+const h = box * 2.6;
+const sw = img.width;
+const sh = img.height;
+const scale = Math.max(w / sw, h / sh);
+const dw = sw * scale;
+const dh = sh * scale;
+
+ctx.drawImage(img, -dw / 2, -dh / 2, dw, dh);
+      
+      ctx.restore();
+      ctx.lineWidth = 5;
+      ctx.strokeStyle = '#000000';
+      ctx.strokeRect(-box,-box,box*2,box*2);
+      
+      ctx.save();
+ctx.rotate(-Math.PI / 4);
+
+ctx.drawImage(
+    gotasDBD,
+    45,
+    -120,
+    67,
+    67
+);
+
+
+
+ctx.restore();
+
+      ctx.save();
+ctx.rotate(-Math.PI / 4);
+
+
+
+ctx.restore();
+    } else {
+      // Si la imagen no está lista, mostrar WIN de momento
+      ctx.rotate(-Math.PI / 4);
+      ctx.font = 'bold 50px Arial';
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#000000';
+      ctx.fillStyle = '#FFFFFF';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.strokeText('WIN', 0, 0);
+      ctx.fillText('WIN', 0, 0);
+      
+      // Redibujar cuando la imagen cargue
+      if(img.onload === null){
+        img.onload = () => { 
+          console.log(`Imagen lista, redibujo: ${perkName}`);
+          drawWheel(); 
+        };
+      }
+    }
+  }
+
+ ctx.restore();
+ctx.restore();
+
+winnerLabel.innerHTML = '';
+closeWinnerBtn.style.display = 'none';
+}
+
+/* Draw wheel; vertical stacked letters centered on sector bisector; font Anton for heavy look, stroke-white */
+function drawWheel(){
+  const size = 1000;
+  const radius = size/2;
+  const cx = radius, cy = radius;
+  ctx.clearRect(0,0,size,size);
+
+  if(labels.length === 0){
+    ctx.fillStyle = '#222'; ctx.beginPath(); ctx.arc(cx,cy,radius-20,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.font='bold 20px Anton, Arial Black, sans-serif'; ctx.textAlign = "left"; ctx.textBaseline='middle';
+    ctx.fillText('No hay segmentos', cx, cy);
+    drawCenter(cx,cy,radius,null);
+    return;
+  }
+
+  const arc = (Math.PI*2)/labels.length;
+  const rainbow = ctx.createConicGradient(rotation * 0.04, cx, cy);
+
+
+rainbow.addColorStop(0.00, "#ff0000");
+rainbow.addColorStop(0.17, "#ff8800");
+rainbow.addColorStop(0.34, "#ffff00");
+rainbow.addColorStop(0.50, "#00ff00");
+rainbow.addColorStop(0.67, "#00c8ff");
+rainbow.addColorStop(0.84, "#6a00ff");
+rainbow.addColorStop(1.00, "#ff0000");
+  // pointer angle Math.PI
+  let pointerAngle = (Math.PI - rotation) % (2*Math.PI);
+  if(pointerAngle < 0) pointerAngle += 2*Math.PI;
+  const curSector = Math.floor(pointerAngle/arc) % labels.length;
+  if (isSpinning && curSector !== lastTickSector) {
+    lastTickSector = curSector;
+
+    tickSound.currentTime = 0;
+    tickSound.play().catch(() => {});
+}
+
+  ctx.save();
+
+ctx.beginPath();
+ctx.arc(cx, cy, radius - 2, 0, Math.PI * 2);
+ctx.arc(cx, cy, radius - 32, 0, Math.PI * 2, true);
+ctx.closePath();
+
+ctx.fillStyle = rainbow;
+ctx.fill();
+ctx.beginPath();
+ctx.arc(cx, cy, radius - 1, 0, Math.PI * 2);
+
+ctx.lineWidth = 12;
+ctx.strokeStyle = rainbow;
+
+ctx.shadowBlur = 30;
+ctx.shadowColor = "#ffffff";
+
+ctx.stroke();
+
+ctx.shadowBlur = 0;
+ctx.restore();
+  for(let i=0;i<labels.length;i++){
+    const start = i*arc + rotation;
+    const end = start + arc;
+
+    ctx.beginPath(); ctx.moveTo(cx,cy);
+    ctx.arc(cx,cy,radius-20, start, end);
+    ctx.closePath();
+
+    ctx.fillStyle = colors[i % colors.length];
+    ctx.fill();
+    ctx.lineWidth = 1;
+ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+ctx.stroke();
+
+    // TEXTO IGUAL A LA FOTO
+    const bis = start + arc / 2;
+    const outerRadius = radius * 0.95;
+    const innerRadius = radius * 0.22;
+    const textRadius = (outerRadius + innerRadius) / 2;
+    const tx = cx + Math.cos(bis) * textRadius;
+    const ty = cy + Math.sin(bis) * textRadius;
+    const outerR = radius * 0.90;
+    // Punto donde empieza el texto (zona ancha)
+    const startX = cx + Math.cos(bis) * outerR;
+    const startY = cy + Math.sin(bis) * outerR;
+
+    ctx.save();
+    ctx.translate(startX, startY);
+    // dirección del segmento hacia el centro
+    ctx.rotate(bis + Math.PI);
+    ctx.textAlign = "left";
+
+    let text = labels[i] || "";
+    let fontSize = Math.max(24, Math.floor(65 - labels.length * 0.67));
+    ctx.font = `900 ${fontSize}px Arial, sans-serif`;
+    const maxWidth = (outerRadius - innerRadius) * 1.05;
+
+    while (ctx.measureText(text).width > maxWidth && fontSize > 12) {
+      fontSize--;
+      ctx.font = `900 ${fontSize}px Arial, sans-serif`;
+    }
+
+    // CORTAR POR PALABRAS Y AÑADIR ...
+    while (ctx.measureText(text).width > maxWidth && text.includes(" ")) {
+      const palabras = text.split(" ");
+      palabras.pop();
+      text = palabras.join(" ") + "...";
+    }
+
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.lineJoin = "round";
+    ctx.font = `bold ${fontSize}px Arial`;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = "transparent";
+    ctx.lineWidth = 8;
+ctx.strokeStyle = "#000000";
+ctx.fillStyle = "#FFFFFF";
+
+ctx.strokeText(text, 0, 0);
+ctx.fillText(text, 0, 0);
+
+    ctx.restore();
+  }
+
+
+
+ ctx.restore();
+
+
+if (winnerIndex !== null && !isSpinning) {
+
+    ctx.save();
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius - 20, 0, Math.PI * 2);
+    ctx.clip();
+
+    const shadow = ctx.createLinearGradient(
+    0, 0,
+    size, 0
+);
+
+
+   shadow.addColorStop(0.00, "rgba(0,0,0,0.95)");
+shadow.addColorStop(0.18, "rgba(0,0,0,0.75)");
+shadow.addColorStop(0.35, "rgba(0,0,0,0.28)");
+shadow.addColorStop(0.50, "rgba(0,0,0,0.05)");
+shadow.addColorStop(0.65, "rgba(0,0,0,0.28)");
+shadow.addColorStop(0.82, "rgba(0,0,0,0.75)");
+shadow.addColorStop(1.00, "rgba(0,0,0,0.95)");
+
+ctx.globalCompositeOperation = "multiply";
+
+    ctx.fillStyle = shadow;
+    ctx.fillRect(0, 0, size, size);
+
+    ctx.restore();
+}
+
+drawCenter(cx, cy, radius, winnerIndex);
+
+// Nombre ganador encima de todo
+if (winnerIndex !== null && !isSpinning) {
+
+    const winnerText = labels[winnerIndex];
+
+    ctx.save();
+
+    ctx.font = "bold 55px Arial";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
+    ctx.lineWidth = 8;
+    ctx.strokeStyle = "#000000";
+    ctx.fillStyle = "#FFFFFF";
+
+    ctx.strokeText(
+        winnerText.toUpperCase(),
+        cx,
+        cy - 190
+    );
+
+    ctx.fillText(
+        winnerText.toUpperCase(),
+        cx,
+        cy - 190
+    );
+
+    ctx.restore();
+}
+}
+
+/* Spin animation (same math as before) */
+function spin(){
+  if(labels.length === 0) return;
+  if(isSpinning){ stopRequested = true; return; }
+  stopRequested = false;
+
+  const start = rotation;
+  const baseDuration = 7;
+  const multiplier = spinDuration / baseDuration;
+  const ganadorAleatorio = Math.floor(Math.random() * labels.length);
+  const arc = (Math.PI * 2) / labels.length;
+ const vueltas = (Math.PI * 2) * ((spinDuration * 5) + Math.random() * (spinDuration * 1.5));
+  const target = rotation + vueltas + (Math.PI - ((ganadorAleatorio + 0.5) * arc));
+  const duration = spinDuration * 1000;
+  const t0 = performance.now();
+
+  isSpinning = true;
+  winnerIndex = null;
+  lastTickSector = -1;
+  winnerLabel.innerHTML = '';
+  closeWinnerBtn.style.display = 'none';
+
+  function anim(now){
+    let p = (now - t0) / duration;
+    p = Math.min(1,p);
+    const ease = 1 - Math.pow(1-p,6);
+    rotation = start + (target - start) * ease;
+    drawWheel();
+
+    if(stopRequested){
+      isSpinning = false;
+      const arc = (Math.PI * 2) / labels.length;
+      let angle = (Math.PI - rotation) % (2 * Math.PI);
+      if(angle < 0) angle += 2 * Math.PI;
+      winnerIndex = Math.floor(angle / arc) % labels.length;
+      drawWheel();
+      return;
+    }
+
+    if(p < 1){
+      requestAnimationFrame(anim);
+    }else{
+      isSpinning = false;
+      const arc = (Math.PI * 2) / labels.length;
+      let angle = (Math.PI - rotation) % (2 * Math.PI);
+      if(angle < 0) angle += 2 * Math.PI;
+      winnerIndex = Math.floor(angle / arc) % labels.length;
+      drawWheel();
+    }
+  }
+
+  requestAnimationFrame(anim);
+}
+
+/* UI: add labels and upload multiple */
+
+function updateLabelsListMaxHeight(){
+  if(!labelsList) return;
+  const items = labelsList.querySelectorAll('.item');
+  if(items.length <= 6){
+    labelsList.style.maxHeight = '';
+    labelsList.style.overflowY = items.length === 0 ? 'hidden' : 'auto';
+    return;
+  }
+
+  let total = 0;
+  for(let i=0; i<6; i++){
+    const el = items[i];
+    const rect = el.getBoundingClientRect();
+    const style = getComputedStyle(el);
+    const mt = parseFloat(style.marginTop) || 0;
+    const mb = parseFloat(style.marginBottom) || 0;
+    total += rect.height + mt + mb;
+  }
+
+  const cStyle = getComputedStyle(labelsList);
+  const pt = parseFloat(cStyle.paddingTop) || 0;
+  const pb = parseFloat(cStyle.paddingBottom) || 0;
+
+  labelsList.style.maxHeight = Math.ceil(total + pt + pb) + 'px';
+  labelsList.style.overflowY = 'auto';
+}
+
+/* Render list and attach remove handlers */
+function renderList(){
+  labelsList.innerHTML = '';
+  labels.forEach((lab,i)=>{
+    const it = document.createElement('div'); it.className='item';
+    const left = document.createElement('div'); left.style.display='flex'; left.style.alignItems='center'; left.style.gap='8px';
+    const sp = document.createElement('span'); sp.textContent = lab; left.appendChild(sp);
+    const btn = document.createElement('button'); btn.className='remove-btn'; btn.textContent='✖'; btn.onclick = ()=>{ removeLabel(i); };
+    it.appendChild(left); it.appendChild(btn);
+    labelsList.appendChild(it);
+  });
+
+  // Ajusta la altura del contenedor para que se vean máximo 6 items
+  updateLabelsListMaxHeight();
+}
+
+function addFromInput(){
+  const v = (newLabel.value||'').trim(); if(!v) return;
+  if(
+    v.trim().toLowerCase() !== "chayanne" &&
+    v.trim().toLowerCase() !== "me la pela" &&
+    labels.some(x => x.trim().toLowerCase() === v.trim().toLowerCase())
+  ){
+    newLabel.value='';
+    newLabel.placeholder='Duplicado';
+    setTimeout(()=>newLabel.placeholder='Nueva Perk',1500);
+    return;
+  }
+  labels.push(v);
+
+  const imagePath = perksFolder + v + ".webp";
+  const img = new Image();
+  img.src = imagePath;
+  img.onload = () => { drawWheel(); };
+  img.onerror = () => { console.log("No existe imagen para:", v); };
+
+  images.push(imagePath);
+  imagesObjs.push(img);
+  newLabel.value=''; renderList(); drawWheel();
+}
+
+function uploadFiles(){
+  const files = Array.from(filesInput.files||[]);
+  if(files.length === 0){ addFromInput(); return; }
+  let pending = files.length;
+  files.forEach(f=>{
+    const name = f.name.replace(/\.[^/.]+$/,'').trim()||'SinNombre';
+    if(labels.some(x=>x.trim().toLowerCase()===name.toLowerCase())){ pending--; if(pending===0){ renderList(); drawWheel(); filesInput.value=''; } return; }
+    const fr = new FileReader();
+    fr.onload = e=>{
+      const url = e.target.result;
+      labels.push(name); images.push(url); const img = new Image(); img.src = url; imagesObjs.push(img);
+      pending--; if(pending===0){ renderList(); drawWheel(); filesInput.value=''; }
+    };
+    fr.onerror = ()=>{ pending--; if(pending===0){ renderList(); drawWheel(); filesInput.value=''; } };
+    fr.readAsDataURL(f);
+  });
+}
+
+function removeLabel(idx){ if(idx<0||idx>=labels.length) return; labels.splice(idx,1); images.splice(idx,1); imagesObjs.splice(idx,1); if(winnerIndex!==null){ if(idx===winnerIndex) winnerIndex=null; else if(idx<winnerIndex) winnerIndex--; } renderList(); drawWheel(); }
+
+function addRandomPerks(){
+  let cantidad = parseInt(document.getElementById("addPerksCount").value);
+  if(isNaN(cantidad) || cantidad <= 0) return;
+  let disponibles = allPerks.filter(perk => !labels.includes(perk));
+  cantidad = Math.min(cantidad, disponibles.length);
+  for(let i = 0; i < cantidad; i++){
+    const indice = Math.floor(Math.random() * disponibles.length);
+    const perk = disponibles[indice];
+    labels.push(perk);
+    const imagePath = perksFolder + perk + ".webp";
+    images.push(imagePath);
+    const img = new Image(); img.src = imagePath; imagesObjs.push(img);
+    disponibles.splice(indice,1);
+  }
+  renderList();
+  drawWheel();
+}
+
+function removeRandomPerks(){
+  let cantidad = parseInt(document.getElementById("removePerksCount").value);
+  if(isNaN(cantidad) || cantidad <= 0) return;
+  cantidad = Math.min(cantidad, labels.length);
+  for(let i = 0; i < cantidad; i++){
+    const indice = Math.floor(Math.random() * labels.length);
+    labels.splice(indice,1);
+    images.splice(indice,1);
+    imagesObjs.splice(indice,1);
+  }
+  renderList();
+  drawWheel();
+}
+
+/* Event listeners */
+addBtn.addEventListener('click', addFromInput);
+newLabel.addEventListener('keydown', e=>{ if(e.key==='Enter') addFromInput(); });
+filesInput.addEventListener('change', uploadFiles);
+spinBtn.addEventListener('click', spin);
+clearBtn.addEventListener('click', () => {
+  labels = [];
+  images = [];
+  imagesObjs = [];
+  winnerIndex = null;
+  winnerLabel.innerHTML = '';
+  closeWinnerBtn.style.display = 'none';
+  renderList();
+  drawWheel();
+});
+settingsBtn.addEventListener('click', () => {
+  settingsPanel.style.display = settingsPanel.style.display === 'none' ? 'flex' : 'none';
+});
+spinDurationInput.addEventListener('change', () => {
+  const value = parseInt(spinDurationInput.value);
+  if (!isNaN(value) && value >= 1 && value <= 60) {
+    spinDuration = value;
+  } else {
+    spinDurationInput.value = spinDuration;
+  }
+});
+addPerksBtn.addEventListener('click', addRandomPerks);
+removePerksBtn.addEventListener('click', removeRandomPerks);
+
+preloadImages();
+renderList(); 
+drawWheel();
+updateLabelsListMaxHeight();
+
+closeWinnerBtn.addEventListener('click', () => {
+  // hide winner area immediately and clear winner
+  winnerIndex = null;
+  winnerLabel.innerHTML = '';
+  closeWinnerBtn.style.display = 'none';
+
+  // redraw wheel (center will not be drawn because winnerIndex is null)
+  drawWheel();
+});
+
+window.addEventListener('resize', ()=>{ setupCanvas(1000); drawWheel(); updateLabelsListMaxHeight(); });
+
+</script>
+
+</body>
+</html>
