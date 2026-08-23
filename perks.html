@@ -324,15 +324,19 @@
       <div class="session-status" id="sessionStatus">No conectado</div>
       <button type="button" class="copy-token-btn" id="copyTokenBtn" title="Copia el token actual para reutilizarlo (pegándolo en «¿Tienes ya un token?») sin volver a pasar por el login de Twitch">📋 Copiar token</button>
       <div class="help-small" id="clientIdHelp">
-        Pulsa el botón: la página te llevará a Twitch, inicia sesión y concede permisos.
-        Twitch te devolverá aquí mismo ya conectado. Cada persona que lo use se conecta
-        a su propio canal y su propia votación, de forma independiente. Hay que repetir
-        este paso cada vez que se abre OBS o se recarga esta fuente (no se guarda sesión,
-        a propósito, por seguridad). Truco: mientras estés conectado puedes pulsar
-        «Copiar token» y guardarlo tú aparte (por ejemplo en un gestor de contraseñas);
-        así, la próxima vez, en vez de volver a vincular con Twitch puedes pegarlo
-        directamente en «¿Tienes ya un token de acceso?» de abajo.
+        Pulsa el botón: se abrirá una ventanita aparte con el login de Twitch
+        (el panel no se mueve ni se recarga). Inicia sesión, concede permisos
+        y esa ventanita se cerrará sola, ya conectado aquí. Cada persona que
+        lo use se conecta a su propio canal y su propia votación, de forma
+        independiente. Hay que repetir este paso cada vez que se abre OBS o
+        se recarga esta fuente (no se guarda sesión, a propósito, por
+        seguridad). Truco: mientras estés conectado puedes pulsar «Copiar
+        token» y guardarlo tú aparte (por ejemplo en un gestor de
+        contraseñas); así, la próxima vez, en vez de volver a vincular con
+        Twitch puedes pegarlo directamente en «¿Tienes ya un token de
+        acceso?» de abajo.
       </div>
+
       <button type="button" class="manual-token-toggle" id="manualTokenToggle">¿Tienes ya un token de acceso de Twitch? Pegarlo a mano</button>
       <div class="manual-token-box" id="manualTokenBox">
         <div class="help-small">

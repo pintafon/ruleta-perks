@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<title>Vinculando con Twitch…</title>
+<style>
+  html,body{ height:100%; margin:0; }
+  body{
+    background:#0b0b0b; color:#9fdada; font:700 15px/1.5 Arial,sans-serif;
+    display:flex; align-items:center; justify-content:center; text-align:center; padding:24px;
+  }
+  #msg{ max-width:360px; }
+  #msg.err{ color:#ff8a8a; }
+</style>
+</head>
+<body>
+<div id="msg">Vinculando con Twitch…</div>
+<script>
+/* Página pequeña y aislada: se abre SOLO dentro de la ventana emergente que
+   panel.html lanza al pulsar "Vincular con Twitch". Su único trabajo es leer
+   el token que Twitch deja en el hash de esta URL (#access_token=...),
+   devolvérselo a la ventana que la abrió (window.opener, es decir,
+   panel.html) por postMessage, y cerrarse sola. No guarda nada en disco ni
+   en localStorage: el token solo pasa de aquí a la memoria del panel.
+
+   IMPORTANTE: esta URL exacta (origin + pathname, sin query ni hash) debe
+   añadirse también a la lista de "OAuth Redirect URLs" de la app en
+   dev.twitch.tv/console/apps, junto a las que ya tengas de perks.html y
+   panel.html. */
+(function(){
+  var msgEl = document.getElementById('msg');
+  function mostrar(texto, esError){
+    msgEl.textContent = texto;
+    msgEl.classList.toggle('err', !!esError);
+  }
+
+  if(!location.hash || location.hash.length < 2){
+    mostrar('No se ha recibido ninguna respuesta de Twitch. Puedes cerrar esta ventana e inténtalo de nuevo.', true);
+    return;
+  }
+
+  var hashParams = new URLSearchParams(location.hash.slice(1));
+  var accessToken = hashParams.get('access_token');
+  var state = hashParams.get('state');
+  var error = hashParams.get('error_description') || hashParams.get('error');
+
+  // Limpiar el hash de inmediato: el token no debe quedar visible ni en el historial.
+  history.replaceState(null, '', location.origin + location.pathname);
+
+  if(!window.opener){
+    mostrar('Esta ventana no está vinculada al panel (se abrió suelta). Cierra esta pestaña y vuelve a pulsar "Vincular con Twitch" desde el panel.', true);
+    return;
+  }
+
+  try{
+    window.opener.postMessage({
+      type: 'twitchPopupResult',
+      access_token: accessToken || null,
+      state: state || null,
+      error: error || null
+    }, '*');
+  }catch(e){
+    mostrar('No se pudo comunicar el resultado al panel. Cierra esta ventana e inténtalo de nuevo.', true);
+    return;
+  }
+
+  if(error){
+    mostrar('Twitch devolvió un error: ' + error + '. Puedes cerrar esta ventana.', true);
+  } else if(accessToken){
+    mostrar('Vinculado ✔ — cerrando esta ventana…');
+  } else {
+    mostrar('Respuesta de Twitch incompleta. Cierra esta ventana e inténtalo de nuevo.', true);
+  }
+
+  setTimeout(function(){ try{ window.close(); }catch(e){} }, error || !accessToken ? 2500 : 700);
+})();
+</script>
+</body>
+</html>

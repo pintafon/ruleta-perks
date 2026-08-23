@@ -490,6 +490,14 @@
     return location.origin + location.pathname;
   }
 
+  // URL del pequeño archivo de callback (ver twitch-callback.html) que se
+  // abre DENTRO de la ventana emergente de login. Debe vivir en la misma
+  // carpeta que panel.html y estar también registrada en la lista de
+  // "OAuth Redirect URLs" de dev.twitch.tv/console/apps.
+  function redirectUriPopup(){
+    return location.origin + location.pathname.replace(/[^/]*$/, '') + 'twitch-callback.html';
+  }
+
   (function procesarRegresoDeTwitch(){
     if(!location.hash || location.hash.length < 2) return;
     const hashParams = new URLSearchParams(location.hash.slice(1));
@@ -669,25 +677,73 @@
         actualizarProxyEnVivo();
       }
     } else if(d.type === 'twitchLinkRequest'){
-      // Perks nos pide vincular su cuenta de Twitch: navegamos NOSOTROS
-      // (el panel, página de nivel superior) porque Twitch bloquea su login
-      // dentro de un iframe. Twitch nos devolverá aquí con el token en el hash.
-      const state = Math.random().toString(36).slice(2) + Date.now().toString(36);
-      sessionStorage.setItem(TWITCH_OAUTH_STATE_KEY, state);
-      const params = new URLSearchParams({
-        client_id: TWITCH_CLIENT_ID,
-        redirect_uri: redirectUriPanel(),
-        response_type: 'token',
-        scope: TWITCH_SCOPES,
-        state
-      });
-      window.location.href = `https://id.twitch.tv/oauth2/authorize?${params.toString()}`;
+      iniciarVinculoTwitch();
     } else if(d.type === 'twitchResultRequest'){
       // Perks acaba de cargar y pregunta si ya tenemos un resultado de
       // Twitch esperando (por ejemplo, tras volver de la redirección).
       enviarResultadoTwitchAPerks();
+    } else if(d.type === 'twitchPopupResult'){
+      // Respuesta que llega desde twitch-callback.html, cargado DENTRO de la
+      // ventana emergente que abrimos en iniciarVinculoTwitch(). El panel
+      // (esta página) nunca se ha movido de sitio: solo se abrió y cerró una
+      // ventanita aparte, así que no hay salto de pantalla ni recálculo de
+      // zoom en el panel.
+      if(e.source !== popupTwitch) return; // solo aceptamos el resultado de NUESTRA propia ventana emergente
+      const expectedState = sessionStorage.getItem(TWITCH_OAUTH_STATE_KEY);
+      sessionStorage.removeItem(TWITCH_OAUTH_STATE_KEY);
+      if(d.error){
+        resultadoTwitchPendiente = { access_token:null, error:d.error };
+      } else if(!d.state || d.state !== expectedState){
+        resultadoTwitchPendiente = { access_token:null, error:'No se pudo verificar la respuesta de Twitch, inténtalo de nuevo.' };
+      } else {
+        resultadoTwitchPendiente = { access_token:d.access_token, error:null };
+      }
+      popupTwitch = null;
+      enviarResultadoTwitchAPerks();
     }
   });
+
+  // Ventana emergente actualmente abierta para el login de Twitch (o null si
+  // no hay ninguna en curso). La guardamos para poder comprobar que el
+  // 'twitchPopupResult' que llega viene realmente de ella.
+  let popupTwitch = null;
+
+  function iniciarVinculoTwitch(){
+    const state = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    sessionStorage.setItem(TWITCH_OAUTH_STATE_KEY, state);
+
+    function authUrlCon(redirectUri){
+      const params = new URLSearchParams({
+        client_id: TWITCH_CLIENT_ID,
+        redirect_uri: redirectUri,
+        response_type: 'token',
+        scope: TWITCH_SCOPES,
+        state
+      });
+      return `https://id.twitch.tv/oauth2/authorize?${params.toString()}`;
+    }
+
+    // Preferimos abrir el login en una VENTANA EMERGENTE aparte: así el
+    // panel (esta página) se queda quieto, sin taparse ni recargarse, y no
+    // sufre el "salto de pantalla" ni el recálculo de zoom al volver.
+    if(popupTwitch && !popupTwitch.closed){
+      try{ popupTwitch.focus(); }catch(e){}
+      return;
+    }
+    popupTwitch = window.open(
+      authUrlCon(redirectUriPopup()),
+      'vincularTwitch',
+      'width=500,height=720,menubar=no,toolbar=no,location=yes,status=no'
+    );
+
+    if(!popupTwitch){
+      // El navegador embebido (típico en OBS) ha bloqueado la ventana
+      // emergente. Última alternativa: navegar el propio panel, como se
+      // hacía antes (con el inconveniente de taparlo todo y recargar).
+      console.warn('No se pudo abrir la ventana emergente de Twitch (bloqueada por el navegador). Usando la redirección de página completa como alternativa.');
+      window.location.href = authUrlCon(redirectUriPanel());
+    }
+  }
 
   /* ================= AGUJERO CLICKEABLE PARA "EN VIVO" DE PERKS =================
      Con el candado de Perks cerrado, el overlay de bloqueo cubre todo el
