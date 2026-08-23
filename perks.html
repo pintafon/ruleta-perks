@@ -215,6 +215,29 @@
   .help-small{ color:#777; font-size:10px; line-height:1.4; }
   .help-small a{ color:#6cb4ff; }
 
+  /* Casilla para pegar el token manualmente: solución para cuando el
+     navegador interno de OBS no consigue cargar la pantalla de login de
+     Twitch (queda en negro/blanco). El token se consigue vinculando una
+     vez en un navegador normal (fuera de OBS) y copiándolo de ahí. */
+  .manual-token-toggle{
+    color:#6cb4ff; font-size:11px; cursor:pointer; margin-top:6px;
+    text-decoration:underline; user-select:none;
+  }
+  .manual-token-panel{ margin-top:8px; display:flex; flex-direction:column; gap:6px; }
+  .manual-token-panel input[type="text"]{
+    width:100%; height:30px; border-radius:6px; padding:0 8px;
+    background:rgba(0,0,0,.35); border:1px solid rgba(255,255,255,.25);
+    color:#fff; font-size:12px; box-sizing:border-box;
+  }
+  .token-copy-row{
+    display:flex; align-items:center; gap:6px; margin-top:6px;
+  }
+  .token-copy-row input[type="text"]{
+    flex:1 1 auto; height:26px; border-radius:6px; padding:0 6px;
+    background:rgba(0,0,0,.35); border:1px solid rgba(255,255,255,.25);
+    color:#bbb; font-size:11px; box-sizing:border-box;
+  }
+
   .reset-btn-full{
     height:32px; border-radius:6px; background:rgba(138,11,11,.85); border:1px solid #ff5c5c; color:#fff;
     font-weight:800; font-size:12px; cursor:pointer;
@@ -287,6 +310,26 @@
       <div class="help-small" id="clientIdHelp">
         Pulsa el botón, inicia sesión con tu cuenta de Twitch y concede permisos. Cada persona
         que lo use se conecta a su propio canal y su propia votación, de forma independiente.
+      </div>
+
+      <!-- Token de la sesión actual, visible mientras esté conectado, para
+           poder copiarlo y pegarlo en otra copia de esta misma página (por
+           ejemplo la que corre dentro de OBS) si allí la pantalla de login
+           de Twitch no carga. -->
+      <div class="token-copy-row" id="tokenCopyRow" style="display:none;">
+        <input type="text" id="tokenCopyInput" readonly />
+        <button class="apply-btn" id="tokenCopyBtn">Copiar</button>
+      </div>
+
+      <div class="manual-token-toggle" id="manualTokenToggle">¿No carga la pantalla de Twitch aquí? Pegar token manualmente ▾</div>
+      <div class="manual-token-panel" id="manualTokenPanel" style="display:none;">
+        <div class="help-small">
+          Abre este mismo panel en un navegador normal (Chrome/Firefox, fuera de OBS),
+          pulsa "Vincular con Twitch" ahí, autoriza, y cuando quede conectado copia el
+          token que aparecerá encima del botón. Pégalo aquí y pulsa "Usar este token".
+        </div>
+        <input type="text" id="manualTokenInput" placeholder="Pega aquí el token" />
+        <button class="apply-btn" id="manualTokenBtn">Usar este token</button>
       </div>
     </div>
 
@@ -760,6 +803,39 @@ actualizarEstadoBotonEnVivo();
 
 const sessionBtn = document.getElementById('sessionBtn');
 const sessionStatus = document.getElementById('sessionStatus');
+const tokenCopyRow = document.getElementById('tokenCopyRow');
+const tokenCopyInput = document.getElementById('tokenCopyInput');
+const tokenCopyBtn = document.getElementById('tokenCopyBtn');
+const manualTokenToggle = document.getElementById('manualTokenToggle');
+const manualTokenPanel = document.getElementById('manualTokenPanel');
+const manualTokenInput = document.getElementById('manualTokenInput');
+const manualTokenBtn = document.getElementById('manualTokenBtn');
+
+manualTokenToggle.addEventListener('click', ()=>{
+  const visible = manualTokenPanel.style.display !== 'none';
+  manualTokenPanel.style.display = visible ? 'none' : 'flex';
+});
+
+manualTokenBtn.addEventListener('click', ()=>{
+  let token = (manualTokenInput.value || '').trim();
+  if(!token){ setStatus('Pega primero el token en la casilla.', 'err'); return; }
+  // Admite que se pegue con o sin el prefijo "oauth:".
+  token = token.replace(/^oauth:/i, '');
+  verificarYConectar(token);
+});
+
+tokenCopyBtn.addEventListener('click', async ()=>{
+  tokenCopyInput.select();
+  tokenCopyInput.setSelectionRange(0, 99999);
+  try{
+    await navigator.clipboard.writeText(tokenCopyInput.value);
+    tokenCopyBtn.textContent = '¡Copiado!';
+    setTimeout(()=>{ tokenCopyBtn.textContent = 'Copiar'; }, 1500);
+  }catch(e){
+    // Si el navegador bloquea el portapapeles (poco probable, ya se ha
+    // seleccionado el texto igualmente): se puede copiar a mano con Ctrl+C.
+  }
+});
 
 // Client ID de la app de Twitch "valli_oficial". No es secreto (viaja siempre
 // visible en la URL de autorización de Twitch), así que puede quedar fijo aquí
@@ -915,6 +991,11 @@ async function conectarTwitch(username, oauthToken, channel){
     sessionBtn.querySelector('.text').textContent = 'Cerrar sesión';
     setStatus(`Conectado como ${username} · canal #${channel.replace(/^#/,'')}`, 'ok');
     setLuzTwitch('on');
+    // Deja el token visible y copiable, para poder pegarlo en otra copia de
+    // esta misma página (por ejemplo la de dentro de OBS) si allí la
+    // pantalla de login de Twitch no llega a cargar.
+    tokenCopyInput.value = oauthToken;
+    tokenCopyRow.style.display = 'flex';
   } catch(e){
     // tmi.js normalmente rechaza con un string ('Login authentication failed',
     // 'No response from Twitch.', 'closed', etc.) o, más raro, con un Error.
@@ -938,28 +1019,15 @@ function cerrarSesionTwitch(){
   sessionBtn.querySelector('.text').textContent = 'Vincular con Twitch';
   setStatus('No conectado');
   setLuzTwitch('off');
+  tokenCopyInput.value = '';
+  tokenCopyRow.style.display = 'none';
 }
 
-/* Valida el "state" recibido, confirma el token con la API de Twitch y
-   conecta el chat. La usan tanto el flujo nuevo (mensaje desde la ventana
-   emergente del hub) como el flujo antiguo por si acaso (ver más abajo). */
-async function procesarResultadoOAuth(accessToken, state, error){
-  const expectedState = sessionStorage.getItem(OAUTH_STATE_KEY);
-  sessionStorage.removeItem(OAUTH_STATE_KEY);
-
-  if(error){
-    setStatus(`Twitch denegó el acceso: ${error}`, 'err');
-    setLuzTwitch('off');
-    return;
-  }
-  if(!accessToken) return;
-
-  if(!state || state !== expectedState){
-    setStatus('No se pudo verificar la respuesta de Twitch, inténtalo de nuevo.', 'err');
-    setLuzTwitch('off');
-    return;
-  }
-
+/* Verifica un access token con la API de Twitch y, si es válido, conecta el
+   chat. La usan tanto el flujo automático (procesarResultadoOAuth, con
+   comprobación de "state") como el pegado manual del token (sin esa
+   comprobación, porque aquí el propio streamer lo está pegando a mano). */
+async function verificarYConectar(accessToken){
   setLuzTwitch('conectando');
   setStatus('Verificando cuenta de Twitch…');
   try{
@@ -988,6 +1056,29 @@ async function procesarResultadoOAuth(accessToken, state, error){
     setStatus(`No se pudo verificar la cuenta de Twitch: ${motivo}`, 'err');
     setLuzTwitch('off');
   }
+}
+
+/* Valida el "state" recibido, y si es correcto delega en verificarYConectar.
+   La usan tanto el flujo nuevo (mensaje desde panel.html tras volver de
+   Twitch) como el flujo antiguo por si acaso (ver más abajo). */
+async function procesarResultadoOAuth(accessToken, state, error){
+  const expectedState = sessionStorage.getItem(OAUTH_STATE_KEY);
+  sessionStorage.removeItem(OAUTH_STATE_KEY);
+
+  if(error){
+    setStatus(`Twitch denegó el acceso: ${error}`, 'err');
+    setLuzTwitch('off');
+    return;
+  }
+  if(!accessToken) return;
+
+  if(!state || state !== expectedState){
+    setStatus('No se pudo verificar la respuesta de Twitch, inténtalo de nuevo.', 'err');
+    setLuzTwitch('off');
+    return;
+  }
+
+  await verificarYConectar(accessToken);
 }
 
 /* Compatibilidad: si esta página llegara a recibir el token directamente en
