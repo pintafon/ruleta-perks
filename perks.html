@@ -773,6 +773,24 @@ function redirectUri(){
   return location.origin + location.pathname;
 }
 
+function redirectUriTop(){
+  // La URL del PANEL (nivel superior), sin query ni hash. Twitch no permite
+  // que su pantalla de login se cargue dentro de un iframe (la bloquea por
+  // seguridad, para evitar clickjacking), así que hay que navegar toda la
+  // ventana —no solo este iframe— y pedirle a Twitch que redirija de vuelta
+  // también a nivel de toda la ventana, al panel.html. Si se le pidiera que
+  // volviera a la URL de este iframe (perks.html), Twitch igualmente
+  // "rompería" el iframe y navegaría toda la ventana hacia perks.html
+  // suelto, perdiendo el panel entero.
+  try{
+    return window.top.location.origin + window.top.location.pathname;
+  }catch(e){
+    // Por si en algún momento se sirviera desde otro origen y el acceso a
+    // window.top.location estuviera bloqueado por el navegador.
+    return redirectUri();
+  }
+}
+
 function setStatus(text, kind){
   sessionStatus.textContent = text;
   sessionStatus.classList.remove('ok','err');
@@ -809,31 +827,28 @@ sessionBtn.addEventListener('click', ()=>{
 
   const params = new URLSearchParams({
     client_id: TWITCH_CLIENT_ID,
-    redirect_uri: redirectUri(),
+    redirect_uri: redirectUriTop(),
     response_type: 'token',
     scope: TWITCH_SCOPES,
     state
   });
-  // Navega ESTA MISMA página (este iframe) a la pantalla oficial de Twitch,
-  // en vez de abrir una ventana emergente. Es imprescindible dentro de OBS:
-  // el Browser Source de OBS bloquea SIEMPRE los popups (window.open) y no
-  // tiene ninguna opción en su interfaz para permitirlos, así que el flujo
-  // antiguo con ventana emergente nunca podía funcionar ahí (por eso salía
-  // "El navegador bloqueó la ventana emergente de Twitch").
+  // Navega TODA LA VENTANA (window.top), no solo este iframe. Twitch no deja
+  // que su pantalla de login se cargue dentro de un iframe (por eso antes
+  // "desaparecía el panel": Twitch forzaba la navegación de toda la ventana
+  // igualmente, pero de vuelta a la URL de este iframe suelto). Al pedirlo
+  // nosotros mismos desde el principio, y decirle a Twitch que vuelva al
+  // panel.html (redirectUriTop), el panel se reconstruye entero al volver y
+  // es panel.html quien reenvía el token a este iframe (ver su propio
+  // código: busca el token en la URL al cargar y lo manda por postMessage
+  // al iframe de Perks).
   //
-  // Al navegar directamente, Twitch redirige de vuelta a esta misma URL
-  // con el token en el fragmento (#access_token=...), y
-  // manejarRegresoDeTwitch() (más abajo) lo recoge automáticamente en
-  // cuanto la página vuelve a cargar. No hace falta ninguna ventana ni
-  // ningún postMessage.
-  //
-  // IMPORTANTE: para que esto funcione, la URL exacta donde vive este
-  // archivo (perks.html) tiene que estar añadida en "OAuth Redirect URLs"
-  // dentro de tu app en https://dev.twitch.tv/console/apps
-  // (normalmente: https://pintafon.github.io/ruleta-perks/perks.html)
+  // IMPORTANTE: para que esto funcione, la URL exacta donde vive panel.html
+  // tiene que estar añadida en "OAuth Redirect URLs" dentro de tu app en
+  // https://dev.twitch.tv/console/apps
+  // (normalmente: https://pintafon.github.io/ruleta-perks/panel.html)
   setLuzTwitch('conectando');
   setStatus('Redirigiendo a Twitch para autorizar…');
-  window.location.href = `https://id.twitch.tv/oauth2/authorize?${params.toString()}`;
+  window.top.location.href = `https://id.twitch.tv/oauth2/authorize?${params.toString()}`;
 });
 
 /* Compatibilidad con el flujo antiguo por ventana emergente (hub +

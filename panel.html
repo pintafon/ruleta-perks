@@ -104,6 +104,28 @@
   }
   .overlay-arrastre.activo{ display:block; }
 
+  /* ===== Overlay GLOBAL de arrastre =====
+     Problema que soluciona: cada ventana solo tenía su propio overlay,
+     que protege su PROPIO iframe mientras se arrastra esa ventana. Pero
+     al mover una ventana el cursor pasa por ENCIMA de otras ventanas (con
+     SU iframe, que es un documento aparte). El navegador entrega los
+     eventos de ratón al iframe que está debajo en vez de al documento
+     padre, así que el listener de mousemove del panel deja de recibir
+     eventos mientras el cursor cruza otro iframe: el arrastre se corta,
+     da tirones o parece que las ventanas "chocan". Este overlay cubre
+     TODO el stage (por encima de cualquier ventana/iframe) mientras dura
+     cualquier arrastre o redimensionado (de ventanas o del panel), así
+     el ratón siempre lo captura el documento padre y el movimiento es
+     fluido de principio a fin. */
+  .overlay-arrastre-global{
+    position:absolute;
+    inset:0;
+    display:none;
+    z-index:1000000000; /* por encima de cualquier ventana, por debajo del panel */
+    cursor:grabbing;
+  }
+  .overlay-arrastre-global.activo{ display:block; }
+
   /* Overlay de bloqueo (candado): cuando un botón está bloqueado, este
      overlay transparente cubre por completo el iframe de esa ventana e
      impide cualquier clic/interacción dentro de ella (aunque el modo
@@ -354,6 +376,7 @@
 
   <div id="stage">
     <div id="stage-empty">Nada seleccionado — pulsa un botón para mostrarlo</div>
+    <div class="overlay-arrastre-global" id="overlayArrastreGlobal"></div>
 
     <div class="ventana" id="ventana-survivor" data-programa="survivor">
       <div class="barra-ventana">Survivor Roulette</div>
@@ -469,6 +492,7 @@
 <script>
   const stage = document.getElementById('stage');
   const stageEmpty = document.getElementById('stage-empty');
+  const overlayArrastreGlobal = document.getElementById('overlayArrastreGlobal');
   const ventanas = {
     survivor: document.getElementById('ventana-survivor'),
     killer:   document.getElementById('ventana-killer'),
@@ -782,6 +806,7 @@
       const offX = e.clientX - rect.left;
       const offY = e.clientY - rect.top;
       overlay.classList.add('activo');
+      overlayArrastreGlobal.classList.add('activo');
 
       function mover(ev){
         let nuevoLeft = ev.clientX - stageRect.left - offX;
@@ -793,6 +818,7 @@
       }
       function soltar(){
         overlay.classList.remove('activo');
+        overlayArrastreGlobal.classList.remove('activo');
         document.removeEventListener('mousemove', mover);
         document.removeEventListener('mouseup', soltar);
       }
@@ -820,6 +846,7 @@
         const startTop = rect.top - stageRect.top;
         const startW = rect.width, startH = rect.height;
         overlay.classList.add('activo');
+        overlayArrastreGlobal.classList.add('activo');
 
         const afectaIzquierda = (clase === 'asa-tl' || clase === 'asa-bl');
         const afectaArriba   = (clase === 'asa-tl' || clase === 'asa-tr');
@@ -843,6 +870,7 @@
         }
         function soltar(){
           overlay.classList.remove('activo');
+          overlayArrastreGlobal.classList.remove('activo');
           document.removeEventListener('mousemove', mover);
           document.removeEventListener('mouseup', soltar);
         }
@@ -897,6 +925,8 @@
     const offX = e.clientX - rect.left;
     const offY = e.clientY - rect.top;
 
+    overlayArrastreGlobal.classList.add('activo');
+
     function mover(ev){
       let nuevoLeft = ev.clientX - stageRect.left - offX;
       let nuevoTop = ev.clientY - stageRect.top - offY;
@@ -906,6 +936,7 @@
       panelControl.style.top = nuevoTop + 'px';
     }
     function soltar(){
+      overlayArrastreGlobal.classList.remove('activo');
       document.removeEventListener('mousemove', mover);
       document.removeEventListener('mouseup', soltar);
     }
@@ -920,6 +951,7 @@
     fijarPanelEncima();
     const startX = e.clientX;
     const startScale = panelScale;
+    overlayArrastreGlobal.classList.add('activo');
 
     function mover(ev){
       const delta = (ev.clientX - startX) / 260;
@@ -929,6 +961,7 @@
       panelControl.style.transform = `scale(${panelScale})`;
     }
     function soltar(){
+      overlayArrastreGlobal.classList.remove('activo');
       document.removeEventListener('mousemove', mover);
       document.removeEventListener('mouseup', soltar);
     }
@@ -973,6 +1006,49 @@
     panelControl.classList.toggle('oculto', panelOculto);
     btnTogglePanel.textContent = panelOculto ? '👁 Mostrar panel' : '👁 Ocultar panel';
   });
+
+  /* ================= Recepción del token de Twitch tras la redirección =================
+     Twitch no permite que su pantalla de login se cargue dentro de un
+     iframe (la bloquea por seguridad), así que perks.html navega TODA la
+     ventana (window.top) a Twitch en vez de solo su propio iframe, y le
+     pide que redirija de vuelta también a nivel de toda la ventana, aquí,
+     a panel.html. Al volver, esta página se recarga entera (reconstruyendo
+     el panel con total normalidad) y aquí se recoge el token del
+     fragmento de la URL para reenviarlo, por postMessage, al iframe de
+     Perks — que es quien realmente lo valida y conecta el chat. */
+  (function recibirTokenTwitchDesdeRedireccion(){
+    if(!location.hash || location.hash.length < 2) return;
+    const hashParams = new URLSearchParams(location.hash.slice(1));
+    if(!hashParams.has('access_token') && !hashParams.has('error')) return;
+
+    const resultado = {
+      type: 'twitchOAuthResult',
+      access_token: hashParams.get('access_token') || '',
+      state: hashParams.get('state') || '',
+      error: hashParams.get('error_description') || hashParams.get('error') || ''
+    };
+
+    // Limpia el fragmento de la URL para que un F5 no vuelva a procesarlo.
+    history.replaceState(null, '', location.pathname + location.search);
+
+    function enviarAPerks(){
+      const framePerks = frames.perks;
+      if(framePerks && framePerks.contentWindow){
+        framePerks.contentWindow.postMessage(resultado, location.origin);
+      }
+    }
+    // El iframe de Perks puede tardar en cargar; se reintenta unas cuantas
+    // veces hasta que el listener de dentro del iframe esté registrado (no
+    // hay forma fiable de saber "ya está listo" desde fuera sin arriesgarse
+    // a perder el mensaje si llega antes de tiempo).
+    let intentos = 0;
+    const intervalo = setInterval(()=>{
+      enviarAPerks();
+      intentos++;
+      if(intentos >= 15) clearInterval(intervalo); // ~7.5s de margen
+    }, 500);
+  })();
+
 </script>
 
 </body>
