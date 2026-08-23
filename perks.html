@@ -314,14 +314,15 @@
       <button class="session-btn" id="sessionBtn"><span class="dot"></span><span class="text">Vincular con Twitch</span></button>
       <div class="session-status" id="sessionStatus">No conectado</div>
       <div class="help-small" id="clientIdHelp">
-        Pulsa el botón, inicia sesión con tu cuenta de Twitch y concede permisos. Cada persona
-        que lo use se conecta a su propio canal y su propia votación, de forma independiente.
+        Pulsa el botón: la página te llevará a Twitch, inicia sesión y concede permisos.
+        Twitch te devolverá aquí mismo ya conectado. Cada persona que lo use se conecta
+        a su propio canal y su propia votación, de forma independiente. Hay que repetir
+        este paso cada vez que se abre OBS o se recarga esta fuente (no se guarda sesión).
       </div>
-      <button type="button" class="manual-token-toggle" id="manualTokenToggle">¿No se vincula solo (p. ej. dentro de OBS)? Pegar código a mano</button>
+      <button type="button" class="manual-token-toggle" id="manualTokenToggle">¿Tienes ya un token de acceso de Twitch? Pegarlo a mano</button>
       <div class="manual-token-box" id="manualTokenBox">
         <div class="help-small">
-          En la ventana emergente de Twitch, tras iniciar sesión aparecerá un código.
-          Cópialo y pégalo aquí:
+          Pega aquí un token de acceso (access_token) de Twitch si ya lo tienes de otra vinculación:
         </div>
         <div class="manual-token-row">
           <input type="text" id="manualTokenInput" placeholder="Pega aquí el código">
@@ -834,14 +835,6 @@ function setLuzTwitch(estado){
   twitchLight.title = textos[estado] || '';
 }
 
-// URL única registrada en la app de Twitch (dev.twitch.tv/console/apps).
-// Todos los widgets (perks.html, survivor.html, killer.html, contador.html…)
-// piden a Twitch que vuelva SIEMPRE aquí, en una ventana emergente, en vez
-// de a su propia URL. Así solo hace falta tener esta URL en la lista de
-// "OAuth Redirect URLs" de Twitch, y cualquier widget nuevo se vincula sin
-// tener que tocar nada en la consola de Twitch.
-const TWITCH_OAUTH_HUB_URL = 'https://pintafon.github.io/ruleta-perks/Ruleta_Perks_killer_perks.html';
-
 sessionBtn.addEventListener('click', ()=>{
   if(session.conectado){
     cerrarSesionTwitch();
@@ -853,48 +846,29 @@ sessionBtn.addEventListener('click', ()=>{
 
   const params = new URLSearchParams({
     client_id: TWITCH_CLIENT_ID,
-    redirect_uri: TWITCH_OAUTH_HUB_URL,
+    redirect_uri: redirectUri(),
     response_type: 'token',
     scope: TWITCH_SCOPES,
     state
   });
-  // Abre una ventana emergente con la pantalla oficial de Twitch. Se abre en
-  // popup (en vez de navegar esta misma pestaña) para poder recibir el
-  // resultado por postMessage cuando Twitch redirija de vuelta a la URL
-  // del hub.
-  const popup = window.open(
-    `https://id.twitch.tv/oauth2/authorize?${params.toString()}`,
-    'twitchOAuthPopup',
-    'width=500,height=680'
-  );
-  if(!popup){
-    setStatus('El navegador bloqueó la ventana emergente de Twitch. Permite ventanas emergentes para esta página e inténtalo de nuevo.', 'err');
-    return;
-  }
+  // Navega esta misma página a Twitch (en vez de abrir una ventana emergente
+  // con window.open): los navegadores embebidos de OBS bloquean casi siempre
+  // los popups, pero una redirección normal de página completa sí funciona
+  // dentro de OBS igual que en cualquier navegador. Twitch nos devuelve aquí
+  // mismo, a esta misma URL, con el token en el hash (#access_token=...);
+  // lo procesa manejarRegresoDeTwitch() más abajo al recargar la página.
+  // IMPORTANTE: esta URL exacta (origin + pathname, sin query ni hash) debe
+  // estar en la lista de "OAuth Redirect URLs" de la app en
+  // dev.twitch.tv/console/apps para que Twitch acepte la redirección.
   setLuzTwitch('conectando');
-  setStatus('Esperando autorización en la ventana de Twitch…');
+  setStatus('Redirigiendo a Twitch…');
+  window.location.href = `https://id.twitch.tv/oauth2/authorize?${params.toString()}`;
 });
 
-/* Recibe el resultado de la vinculación desde la ventana emergente del hub
-   (Ruleta_Perks_killer_perks.html), que es la única URL registrada en la
-   app de Twitch. Se valida contra el origen REAL del hub (no el nuestro):
-   perks.html puede estar corriendo como archivo local en OBS, así que
-   comparar con location.origin propio nunca coincidiría y el mensaje se
-   descartaría siempre, aunque llegase bien. */
-const TWITCH_OAUTH_HUB_ORIGIN = 'https://pintafon.github.io';
-window.addEventListener('message', (e)=>{
-  if(e.origin !== TWITCH_OAUTH_HUB_ORIGIN) return;
-  const d = e.data || {};
-  if(d.type !== 'twitchOAuthResult') return;
-  procesarResultadoOAuth(d.access_token, d.state, d.error);
-});
-
-/* ---- Respaldo manual: pega el código que muestra la ventana emergente ----
-   El aviso automático (postMessage) entre la ventana emergente y esta página
-   puede no llegar dentro del navegador embebido de OBS (algunas versiones no
-   mantienen bien la relación entre ventanas). Este campo NO depende de eso:
-   el código se copia y pega a mano, así que funciona siempre, sin importar
-   el motivo por el que falle el aviso automático. */
+/* ---- Respaldo manual: pegar un token de acceso ya obtenido ----
+   Ya no hace falta para el flujo normal (ahora la propia página navega a
+   Twitch y vuelve con el token). Se deja como vía alternativa por si algún
+   día hiciera falta introducir un token conseguido de otra forma. */
 const manualTokenToggle = document.getElementById('manualTokenToggle');
 const manualTokenBox = document.getElementById('manualTokenBox');
 const manualTokenInput = document.getElementById('manualTokenInput');
@@ -907,7 +881,7 @@ manualTokenToggle.addEventListener('click', ()=>{
 manualTokenBtn.addEventListener('click', ()=>{
   const codigo = (manualTokenInput.value || '').trim();
   if(!codigo){
-    setStatus('Pega primero el código que te ha dado la ventana de Twitch.', 'err');
+    setStatus('Pega primero un token de acceso de Twitch.', 'err');
     return;
   }
   // El código pegado a mano por la propia persona ya es, en sí mismo, la
@@ -997,8 +971,8 @@ function cerrarSesionTwitch(){
 }
 
 /* Valida el "state" recibido, confirma el token con la API de Twitch y
-   conecta el chat. La usan tanto el flujo nuevo (mensaje desde la ventana
-   emergente del hub) como el flujo antiguo por si acaso (ver más abajo). */
+   conecta el chat. La llaman tanto manejarRegresoDeTwitch() (flujo normal,
+   al volver de Twitch) como el respaldo manual de pegar un token a mano. */
 async function procesarResultadoOAuth(accessToken, state, error, saltarComprobacionState){
   const expectedState = sessionStorage.getItem(OAUTH_STATE_KEY);
   sessionStorage.removeItem(OAUTH_STATE_KEY);
@@ -1046,11 +1020,11 @@ async function procesarResultadoOAuth(accessToken, state, error, saltarComprobac
   }
 }
 
-/* Compatibilidad: si esta página llegara a recibir el token directamente en
-   el fragmento de su propia URL (#access_token=...) — por ejemplo, si
-   quedara una versión antigua registrada como redirect URL en Twitch — se
-   procesa igual, limpiando el hash primero. Con el hub, esto normalmente
-   ya no ocurre. */
+/* Flujo normal de vuelta desde Twitch: el token llega en el fragmento de la
+   URL de esta misma página (#access_token=...) tras la redirección completa
+   iniciada en el clic de "Vincular con Twitch". Se limpia el hash de
+   inmediato (el token no debe quedar visible ni en el historial) y se
+   procesa el resultado. */
 async function manejarRegresoDeTwitch(){
   if(!location.hash || location.hash.length < 2) return;
   const hashParams = new URLSearchParams(location.hash.slice(1));
