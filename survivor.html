@@ -519,11 +519,17 @@ function crearImagenPerk(perkName, onLoad, onAllFailed){
 function cargarAssetConFallback(elemento, nombreArchivo){
   let intento = 0;
   function probarSiguiente(){
-    if(intento >= IMAGE_FOLDER_CANDIDATES.length) return;
+    if(intento >= IMAGE_FOLDER_CANDIDATES.length){
+      console.warn(`No se encontró "${nombreArchivo}" en ninguna carpeta: ${IMAGE_FOLDER_CANDIDATES.join(', ')}`);
+      return;
+    }
     elemento.src = IMAGE_FOLDER_CANDIDATES[intento] + nombreArchivo;
     intento++;
   }
   elemento.addEventListener('error', probarSiguiente);
+  elemento.addEventListener('canplaythrough', () => {
+    console.log(`Asset listo: ${nombreArchivo} (${elemento.src})`);
+  });
   probarSiguiente();
 }
 
@@ -738,7 +744,7 @@ rainbow.addColorStop(1.00, "#ff0000");
     lastTickSector = curSector;
 
     tickSound.currentTime = 0;
-    tickSound.play().catch(() => {});
+    tickSound.play().catch((e) => { console.warn('No se pudo reproducir tick.mp3:', e.name, e.message); });
 }
 
   ctx.save();
