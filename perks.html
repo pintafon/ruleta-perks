@@ -233,6 +233,15 @@
   .session-btn .dot{ width:8px; height:8px; border-radius:50%; background:rgba(255,255,255,.6); }
   .session-btn.conectado{ background:rgba(138,11,11,.85); border-color:#ff5c5c; }
   .session-btn.conectado .dot{ background:#ff9a9a; }
+
+  /* ---- Botón "Copiar token": solo visible mientras hay sesión activa ---- */
+  .copy-token-btn{
+    display:none; height:30px; padding:0 12px; border-radius:6px; background:rgba(255,255,255,.1);
+    border:1px solid rgba(255,255,255,.3); color:#fff; font-weight:800; font-size:11px; cursor:pointer;
+    align-items:center; justify-content:center; gap:6px; width:100%;
+  }
+  .copy-token-btn.visible{ display:flex; }
+  .copy-token-btn.copiado{ background:rgba(61,220,132,.22); border-color:#3ddc84; color:#3ddc84; }
   .session-status{ color:#bbb; font-size:11px; line-height:1.4; }
   .session-status.ok{ color:#3ddc84; }
   .session-status.err{ color:#ff6b6b; }
@@ -313,11 +322,16 @@
       <div class="sec-title">Cuenta de Twitch</div>
       <button class="session-btn" id="sessionBtn"><span class="dot"></span><span class="text">Vincular con Twitch</span></button>
       <div class="session-status" id="sessionStatus">No conectado</div>
+      <button type="button" class="copy-token-btn" id="copyTokenBtn" title="Copia el token actual para reutilizarlo (pegándolo en «¿Tienes ya un token?») sin volver a pasar por el login de Twitch">📋 Copiar token</button>
       <div class="help-small" id="clientIdHelp">
         Pulsa el botón: la página te llevará a Twitch, inicia sesión y concede permisos.
         Twitch te devolverá aquí mismo ya conectado. Cada persona que lo use se conecta
         a su propio canal y su propia votación, de forma independiente. Hay que repetir
-        este paso cada vez que se abre OBS o se recarga esta fuente (no se guarda sesión).
+        este paso cada vez que se abre OBS o se recarga esta fuente (no se guarda sesión,
+        a propósito, por seguridad). Truco: mientras estés conectado puedes pulsar
+        «Copiar token» y guardarlo tú aparte (por ejemplo en un gestor de contraseñas);
+        así, la próxima vez, en vez de volver a vincular con Twitch puedes pegarlo
+        directamente en «¿Tienes ya un token de acceso?» de abajo.
       </div>
       <button type="button" class="manual-token-toggle" id="manualTokenToggle">¿Tienes ya un token de acceso de Twitch? Pegarlo a mano</button>
       <div class="manual-token-box" id="manualTokenBox">
@@ -806,6 +820,7 @@ actualizarEstadoBotonEnVivo();
 
 const sessionBtn = document.getElementById('sessionBtn');
 const sessionStatus = document.getElementById('sessionStatus');
+const copyTokenBtn = document.getElementById('copyTokenBtn');
 
 // Client ID de la app de Twitch "valli_oficial". No es secreto (viaja siempre
 // visible en la URL de autorización de Twitch), así que puede quedar fijo aquí
@@ -965,6 +980,9 @@ async function conectarTwitch(username, oauthToken, channel){
     sessionBtn.querySelector('.text').textContent = 'Cerrar sesión';
     setStatus(`Conectado como ${username} · canal #${channel.replace(/^#/,'')}`, 'ok');
     setLuzTwitch('on');
+    copyTokenBtn.classList.add('visible');
+    copyTokenBtn.classList.remove('copiado');
+    copyTokenBtn.textContent = '📋 Copiar token';
   } catch(e){
     // tmi.js normalmente rechaza con un string ('Login authentication failed',
     // 'No response from Twitch.', 'closed', etc.) o, más raro, con un Error.
@@ -988,7 +1006,55 @@ function cerrarSesionTwitch(){
   sessionBtn.querySelector('.text').textContent = 'Vincular con Twitch';
   setStatus('No conectado');
   setLuzTwitch('off');
+  copyTokenBtn.classList.remove('visible','copiado');
+  copyTokenBtn.textContent = '📋 Copiar token';
 }
+
+/* Copia el token actual al portapapeles, para poder reutilizarlo luego
+   pegándolo en el cuadro "¿Tienes ya un token de acceso?" y así saltarse
+   el paso de volver a vincular con Twitch. Usa navigator.clipboard cuando
+   está disponible (funciona en el navegador embebido moderno de OBS), y si
+   falla (contexto no seguro, permisos, versión antigua de OBS) recurre al
+   truco clásico del textarea + document.execCommand('copy'). El token en
+   sí NO se guarda en ningún sitio por nosotros: solo se copia al
+   portapapeles del sistema, que es el propio usuario quien decide dónde
+   guardarlo. */
+copyTokenBtn.addEventListener('click', async ()=>{
+  if(!session.conectado || !session.oauth) return;
+  const token = session.oauth.replace(/^oauth:/, '');
+  function marcarCopiado(){
+    copyTokenBtn.classList.add('copiado');
+    copyTokenBtn.textContent = '✔ Token copiado';
+    setTimeout(()=>{
+      if(!session.conectado) return;
+      copyTokenBtn.classList.remove('copiado');
+      copyTokenBtn.textContent = '📋 Copiar token';
+    }, 2000);
+  }
+  try{
+    if(navigator.clipboard && window.isSecureContext){
+      await navigator.clipboard.writeText(token);
+      marcarCopiado();
+      return;
+    }
+    throw new Error('clipboard API no disponible');
+  }catch(e){
+    try{
+      const ta = document.createElement('textarea');
+      ta.value = token;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      marcarCopiado();
+    }catch(e2){
+      setStatus('No se pudo copiar el token automáticamente; selecciónalo a mano.', 'err');
+    }
+  }
+});
 
 /* Valida el "state" recibido, confirma el token con la API de Twitch y
    conecta el chat. La llaman tanto manejarRegresoDeTwitch() (flujo normal,
