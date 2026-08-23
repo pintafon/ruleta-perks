@@ -1010,7 +1010,7 @@ window.addEventListener('message', function(e){
 /* --- Reporta al panel el tamaño real del contenido, para que pueda
    escalarlo (zoom) sin recortarlo al redimensionar la ventana --- */
 (function(){
-  var SELECTORES = ['#panel', '.stream-controls'];
+  var SELECTORES = ['#panel', '.stream-controls', '.config-control'];
   var MARGEN = 12;
   var pendiente = false;
   function medir(){

@@ -1,10 +1,30 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
+<script>
+/* Se ejecuta lo antes posible (antes de pintar nada): si esta página se
+   abrió como ventana emergente de OTRO widget (perks.html, survivor.html…)
+   para hacer de "hub" de OAuth, marcamos <html> para que el CSS de abajo
+   oculte toda la ruleta y muestre solo un aviso de "Vinculando…", en vez de
+   que se vea la ruleta completa parpadear un instante antes de cerrarse. */
+(function(){
+  try{
+    if(window.opener && window.opener !== window && location.hash && location.hash.indexOf('access_token=') !== -1){
+      document.documentElement.classList.add('oauth-popup-mode');
+    }
+  }catch(e){}
+})();
+</script>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Ruleta Perks — Votación por chat (valli_oficial)</title>
 <style>
+  html.oauth-popup-mode body > *:not(#oauthPopupNotice){ display:none !important; }
+  #oauthPopupNotice{
+    display:none; position:fixed; inset:0; align-items:center; justify-content:center; text-align:center;
+    background:#0a0a0a; color:#fff; font:800 15px/1.5 'Segoe UI',Arial,sans-serif; padding:24px;
+  }
+  html.oauth-popup-mode #oauthPopupNotice{ display:flex; }
   html, body { height:100%; background:transparent; }
   * { margin:0; padding:0; box-sizing:border-box; }
   body{
@@ -221,6 +241,8 @@
 </style>
 </head>
 <body>
+
+<div id="oauthPopupNotice">Vinculando con Twitch…<br>Esta ventana se cerrará sola en un instante.</div>
 
 <div id="errorBanner"></div>
 
