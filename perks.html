@@ -183,6 +183,18 @@
     display:flex; align-items:center; justify-content:center; padding:0;
   }
   .config-close-btn:hover{ background:rgba(255,255,255,.24); }
+  .manual-token-toggle{ color:#6cb4ff; font-size:10.5px; cursor:pointer; text-decoration:underline; background:none; border:none; padding:0; text-align:left; }
+  .manual-token-box{ display:none; flex-direction:column; gap:6px; margin-top:4px; }
+  .manual-token-box.show{ display:flex; }
+  .manual-token-row{ display:flex; gap:6px; }
+  .manual-token-row input{
+    flex:1; height:30px; border-radius:6px; border:1px solid #444; background:#1a1a1a; color:#fff;
+    padding:0 8px; font-size:11px; outline:none;
+  }
+  .manual-token-row button{
+    height:30px; padding:0 10px; border-radius:6px; background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.3);
+    color:#fff; font-weight:800; font-size:11px; cursor:pointer;
+  }
   .config-section{ display:flex; flex-direction:column; gap:6px; }
   .config-section .sec-title{ color:#999; font-size:10.5px; font-weight:800; letter-spacing:.5px; text-transform:uppercase; }
   .config-row{ display:flex; gap:8px; align-items:center; }
@@ -304,6 +316,17 @@
       <div class="help-small" id="clientIdHelp">
         Pulsa el botón, inicia sesión con tu cuenta de Twitch y concede permisos. Cada persona
         que lo use se conecta a su propio canal y su propia votación, de forma independiente.
+      </div>
+      <button type="button" class="manual-token-toggle" id="manualTokenToggle">¿No se vincula solo (p. ej. dentro de OBS)? Pegar código a mano</button>
+      <div class="manual-token-box" id="manualTokenBox">
+        <div class="help-small">
+          En la ventana emergente de Twitch, tras iniciar sesión aparecerá un código.
+          Cópialo y pégalo aquí:
+        </div>
+        <div class="manual-token-row">
+          <input type="text" id="manualTokenInput" placeholder="Pega aquí el código">
+          <button type="button" id="manualTokenBtn">Conectar</button>
+        </div>
       </div>
     </div>
 
@@ -866,6 +889,35 @@ window.addEventListener('message', (e)=>{
   procesarResultadoOAuth(d.access_token, d.state, d.error);
 });
 
+/* ---- Respaldo manual: pega el código que muestra la ventana emergente ----
+   El aviso automático (postMessage) entre la ventana emergente y esta página
+   puede no llegar dentro del navegador embebido de OBS (algunas versiones no
+   mantienen bien la relación entre ventanas). Este campo NO depende de eso:
+   el código se copia y pega a mano, así que funciona siempre, sin importar
+   el motivo por el que falle el aviso automático. */
+const manualTokenToggle = document.getElementById('manualTokenToggle');
+const manualTokenBox = document.getElementById('manualTokenBox');
+const manualTokenInput = document.getElementById('manualTokenInput');
+const manualTokenBtn = document.getElementById('manualTokenBtn');
+
+manualTokenToggle.addEventListener('click', ()=>{
+  manualTokenBox.classList.toggle('show');
+});
+
+manualTokenBtn.addEventListener('click', ()=>{
+  const codigo = (manualTokenInput.value || '').trim();
+  if(!codigo){
+    setStatus('Pega primero el código que te ha dado la ventana de Twitch.', 'err');
+    return;
+  }
+  // El código pegado a mano por la propia persona ya es, en sí mismo, la
+  // confirmación de que es ella quien lo está vinculando: no hace falta
+  // comprobar el "state" (esa comprobación es para el aviso automático,
+  // pensada para detectar mensajes inesperados de terceros).
+  manualTokenInput.value = '';
+  procesarResultadoOAuth(codigo, null, null, /*saltarComprobacionState*/ true);
+});
+
 /* Espera a que la librería tmi.js esté disponible, por si tarda en llegar
    (CDN lento, o cayó al respaldo). Reintenta cada 150ms hasta el timeout. */
 function esperarTmi(timeoutMs){
@@ -947,7 +999,7 @@ function cerrarSesionTwitch(){
 /* Valida el "state" recibido, confirma el token con la API de Twitch y
    conecta el chat. La usan tanto el flujo nuevo (mensaje desde la ventana
    emergente del hub) como el flujo antiguo por si acaso (ver más abajo). */
-async function procesarResultadoOAuth(accessToken, state, error){
+async function procesarResultadoOAuth(accessToken, state, error, saltarComprobacionState){
   const expectedState = sessionStorage.getItem(OAUTH_STATE_KEY);
   sessionStorage.removeItem(OAUTH_STATE_KEY);
 
@@ -958,7 +1010,7 @@ async function procesarResultadoOAuth(accessToken, state, error){
   }
   if(!accessToken) return;
 
-  if(!state || state !== expectedState){
+  if(!saltarComprobacionState && (!state || state !== expectedState)){
     setStatus('No se pudo verificar la respuesta de Twitch, inténtalo de nuevo.', 'err');
     setLuzTwitch('off');
     return;

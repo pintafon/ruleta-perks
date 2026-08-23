@@ -21,10 +21,26 @@
 <style>
   html.oauth-popup-mode body > *:not(#oauthPopupNotice){ display:none !important; }
   #oauthPopupNotice{
-    display:none; position:fixed; inset:0; align-items:center; justify-content:center; text-align:center;
-    background:#0a0a0a; color:#fff; font:800 15px/1.5 'Segoe UI',Arial,sans-serif; padding:24px;
+    display:none; position:fixed; inset:0; flex-direction:column; align-items:center; justify-content:center; text-align:center;
+    background:#0a0a0a; color:#fff; font:800 15px/1.5 'Segoe UI',Arial,sans-serif; padding:24px; gap:14px;
   }
   html.oauth-popup-mode #oauthPopupNotice{ display:flex; }
+  #oauthPopupNotice .aviso-manual{ display:none; flex-direction:column; gap:10px; width:100%; max-width:380px; }
+  #oauthPopupNotice .aviso-manual.show{ display:flex; }
+  #oauthPopupNotice .aviso-manual p{ font-size:12px; font-weight:600; color:#bbb; }
+  #oauthPopupNotice .codigo-row{ display:flex; gap:8px; }
+  #oauthPopupNotice .codigo-row input{
+    flex:1; height:36px; border-radius:6px; border:1px solid #444; background:#1a1a1a; color:#fff;
+    padding:0 8px; font-size:11px; outline:none;
+  }
+  #oauthPopupNotice .codigo-row button{
+    height:36px; padding:0 14px; border-radius:6px; background:#2c7a3f; border:1px solid #3ddc84;
+    color:#fff; font-weight:800; font-size:12px; cursor:pointer;
+  }
+  #oauthPopupNotice .cerrar-btn{
+    margin-top:6px; height:34px; padding:0 16px; border-radius:6px; background:rgba(255,255,255,.12);
+    border:1px solid rgba(255,255,255,.3); color:#fff; font-weight:800; font-size:12px; cursor:pointer;
+  }
   html, body { height:100%; background:transparent; }
   * { margin:0; padding:0; box-sizing:border-box; }
   body{
@@ -242,7 +258,18 @@
 </head>
 <body>
 
-<div id="oauthPopupNotice">Vinculando con Twitch…<br>Esta ventana se cerrará sola en un instante.</div>
+<div id="oauthPopupNotice">
+  <div id="oauthPopupMainText">Vinculando con Twitch…</div>
+  <div class="aviso-manual" id="avisoManual">
+    <p>Si la ventana de origen no se conecta sola en unos segundos (puede pasar dentro de OBS),
+       copia este código y pégalo ahí en Ajustes → "Pegar código a mano":</p>
+    <div class="codigo-row">
+      <input type="text" id="codigoManual" readonly>
+      <button type="button" id="copiarCodigoBtn">Copiar</button>
+    </div>
+    <button type="button" class="cerrar-btn" id="cerrarPopupBtn">Cerrar esta ventana</button>
+  </div>
+</div>
 
 <div id="errorBanner"></div>
 
@@ -928,8 +955,41 @@ async function manejarRegresoDeTwitch(){
         '*'
       );
     }catch(e){ /* si falla el postMessage no hay nada más que hacer aquí */ }
-    setStatus(error ? `Twitch denegó el acceso: ${error}` : 'Vinculación completada, puedes cerrar esta ventana…', error ? 'err' : 'ok');
-    setTimeout(()=>{ try{ window.close(); }catch(e){} }, error ? 0 : 600);
+
+    const mainText = document.getElementById('oauthPopupMainText');
+    const avisoManual = document.getElementById('avisoManual');
+    const codigoManual = document.getElementById('codigoManual');
+    const copiarCodigoBtn = document.getElementById('copiarCodigoBtn');
+    const cerrarPopupBtn = document.getElementById('cerrarPopupBtn');
+
+    if(error){
+      mainText.textContent = `Twitch denegó el acceso: ${error}`;
+      avisoManual.classList.add('show');
+      avisoManual.querySelector('p').style.display = 'none';
+      codigoManual.parentElement.style.display = 'none';
+      cerrarPopupBtn.addEventListener('click', ()=>{ try{ window.close(); }catch(e){} });
+      return;
+    }
+
+    mainText.textContent = 'Vinculación completada.';
+    // No cerramos esta ventana automáticamente: si el aviso automático de
+    // arriba no llega a la ventana de origen (por ejemplo dentro del
+    // navegador embebido de OBS, que en algunas versiones no mantiene bien
+    // la relación entre ventanas), la persona necesita poder ver y copiar
+    // este código a mano. Se cierra ella misma cuando ya no lo necesite.
+    codigoManual.value = accessToken || '';
+    avisoManual.classList.add('show');
+    copiarCodigoBtn.addEventListener('click', ()=>{
+      codigoManual.select();
+      try{
+        navigator.clipboard.writeText(codigoManual.value);
+        copiarCodigoBtn.textContent = '¡Copiado!';
+        setTimeout(()=>{ copiarCodigoBtn.textContent = 'Copiar'; }, 1500);
+      }catch(e){
+        document.execCommand('copy');
+      }
+    });
+    cerrarPopupBtn.addEventListener('click', ()=>{ try{ window.close(); }catch(e){} });
     return;
   }
 
