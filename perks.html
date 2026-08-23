@@ -835,9 +835,29 @@ function setLuzTwitch(estado){
   twitchLight.title = textos[estado] || '';
 }
 
+// Detecta si esta página se está ejecutando dentro de un iframe (p. ej.
+// incrustada en panel.html). Importante porque Twitch no permite que su
+// pantalla de login se cargue dentro de un iframe (protección anti-
+// clickjacking): si estamos incrustados, no podemos navegar nosotros mismos
+// a Twitch, así que le pedimos a la página de nivel superior (el panel) que
+// lo haga por nosotros y nos devuelva el resultado por postMessage.
+const enIframe = (window.top !== window.self);
+
 sessionBtn.addEventListener('click', ()=>{
   if(session.conectado){
     cerrarSesionTwitch();
+    return;
+  }
+
+  if(enIframe){
+    setLuzTwitch('conectando');
+    setStatus('Pidiendo al panel que abra el login de Twitch…');
+    try{
+      window.top.postMessage({ type:'twitchLinkRequest' }, '*');
+    }catch(e){
+      setStatus('No se pudo pedir al panel que vinculara Twitch.', 'err');
+      setLuzTwitch('off');
+    }
     return;
   }
 
@@ -1026,6 +1046,7 @@ async function procesarResultadoOAuth(accessToken, state, error, saltarComprobac
    inmediato (el token no debe quedar visible ni en el historial) y se
    procesa el resultado. */
 async function manejarRegresoDeTwitch(){
+  if(enIframe) return; // incrustada: el hash con el token llega a panel.html, no aquí
   if(!location.hash || location.hash.length < 2) return;
   const hashParams = new URLSearchParams(location.hash.slice(1));
   const accessToken = hashParams.get('access_token');
@@ -1045,6 +1066,13 @@ window.addEventListener('beforeunload', ()=>{
 
 manejarRegresoDeTwitch();
 
+// Si estamos incrustados en panel.html, es el panel quien navega a Twitch y
+// vuelve (ver más arriba), así que en vez de mirar nuestro propio hash le
+// preguntamos al panel si ya tiene un resultado esperando para nosotros.
+if(enIframe){
+  try{ window.top.postMessage({ type:'twitchResultRequest' }, '*'); }catch(e){}
+}
+
 /* --- Comunicación con la botonera (panel padre) --- */
 window.addEventListener('message', function(e){
   const d = e.data || {};
@@ -1056,6 +1084,11 @@ window.addEventListener('message', function(e){
     // directo). Simplemente pulsamos el botón real: así EN VIVO sigue
     // funcionando incluso con Perks bloqueado, sin tocar nada más.
     envivoBtn.click();
+  } else if(d.type === 'twitchOAuthResult'){
+    // El panel ya navegó a Twitch y volvió por nosotros (ver twitchLinkRequest
+    // más arriba); nos reenvía aquí el resultado. El panel ya comprobó el
+    // "state" en su propio contexto, así que aquí no hace falta repetirlo.
+    procesarResultadoOAuth(d.access_token, null, d.error, /*saltarComprobacionState*/ true);
   }
 });
 
