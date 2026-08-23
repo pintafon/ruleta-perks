@@ -48,6 +48,7 @@
 #winnerZoom .esquina-tr{ top:-4px; right:-4px; border-top:3px solid #e8c15a; border-right:3px solid #e8c15a; border-radius:0 8px 0 0; }
 #winnerZoom .esquina-bl{ bottom:-4px; left:-4px; border-bottom:3px solid #e8c15a; border-left:3px solid #e8c15a; border-radius:0 0 0 8px; }
 #winnerZoom .esquina-br{ bottom:-4px; right:-4px; border-bottom:3px solid #e8c15a; border-right:3px solid #e8c15a; border-radius:0 0 8px 0; }
+
 #winnerName{
     position:fixed;
     left:50%;
@@ -496,6 +497,34 @@ body{
     0%,100%{ filter:brightness(1) saturate(1); }
     50%{ filter:brightness(1.4) saturate(1.5); }
 }
+/* ===== BLOQUEO POR CANDADO (desde panel.html) =====
+   Cuando el candado de Killer Roulette está cerrado, panel.html manda
+   {type:'setBloqueo', locked:true} y aquí bloqueamos por completo la
+   interacción con TODO el contenido, excepto el botón GIRAR y el ganador
+   ampliado (para poder seguir cerrándolo con un clic). Así el clic no
+   depende de ningún cálculo de posición/zoom hecho desde fuera: pasa
+   siempre directo al botón real, dentro de este mismo documento. */
+body.candado-cerrado *{
+    pointer-events:none !important;
+}
+body.candado-cerrado #diceWrap,
+body.candado-cerrado #diceWrap *{
+    pointer-events:auto !important;
+}
+/* IMPORTANTE: #winnerZoom y #winnerName ocupan una zona grande y fija
+   en el centro de la pantalla, con un z-index altísimo, TODO EL RATO
+   (aunque estén invisibles con opacity:0, siguen "ahí" en el DOM).
+   Si se les diera pointer-events:auto de forma permanente en cuanto el
+   candado está cerrado, esa zona invisible se comería los clics de
+   cualquier cosa que quedara debajo — incluido el botón GIRAR si se
+   arrastra a esa zona central, que es justo donde suele quedar—.
+   Por eso la excepción solo se activa MIENTRAS de verdad se está
+   mostrando el ganador (clase .zoom-activo / .visible), nunca antes ni
+   después. */
+body.candado-cerrado #winnerZoom.zoom-activo,
+body.candado-cerrado #winnerName.visible{
+    pointer-events:auto !important;
+}
 </style>
 </head>
 <body>
@@ -678,7 +707,7 @@ function tryImageCandidatesVerbose(killer){
 }
 
 /* CARGA DINÁMICA + SORTEO */
-let isSpinning = false, stopRequested = false, currentSleep = null;
+let isSpinning = false, stopRequested = false, currentSleep = null, ultimoGanadorIndice = null;
 function cancellableSleep(ms){
     let timer = null, resolveFn = null;
     const p = new Promise(resolve => { resolveFn = resolve; timer = setTimeout(resolve, ms); });
@@ -750,12 +779,13 @@ card.addEventListener("click", () => {
 
 boton.addEventListener("click", () => {
 
-    document.getElementById("winnerName").style.opacity = "0";
+    const wn = document.getElementById("winnerName");
+    wn.style.opacity = "0";
+    wn.classList.remove("visible");
 
     if(!isSpinning) iniciarSorteo();
     else {
         stopRequested = true;
-        boton.disabled = true;
         if(currentSleep && currentSleep.cancel) currentSleep.cancel();
     }
 });
@@ -780,6 +810,7 @@ async function iniciarSorteo(){
     boton.classList.add("girando");
     progressRing.classList.add("visible");
     ringFg.style.strokeDashoffset = RING_C;
+    try{
     const duracion = 17000,
       tiempoFrenado = 8000,
       inicio = Date.now();
@@ -815,6 +846,7 @@ currentSleep = null;
     }
 
     cards.forEach(card=> card.classList.remove("activa"));
+    ultimoGanadorIndice = ganador;
     const tarjetaGanadora = Array.from(cards).find(c => Number(c.dataset.indice) === ganador);
     if(tarjetaGanadora){
     tarjetaGanadora.classList.add("ganador");
@@ -857,6 +889,7 @@ winnerName.style.top =
 winnerName.style.fontSize = "16px";
 
 winnerName.style.opacity = "1";
+winnerName.classList.add("visible");
 
 winnerNameText.classList.remove("name-pop");
 void winnerNameText.offsetWidth;
@@ -881,13 +914,21 @@ winnerName.style.fontSize = "100px";
 });
         sonidoGanador();
     resultadoEl.innerHTML = "";
-    isSpinning = false;
-    stopRequested = false;
-    currentSleep = null;
-    setIconoBoton("dado");
-    boton.classList.remove("girando");
-    progressRing.classList.remove("visible");
-    boton.disabled = false;
+    } catch(err){
+        console.error("Error durante el sorteo:", err);
+    } finally {
+        /* Pase lo que pase (termine bien, se pare, o falle algo a mitad),
+           el botón SIEMPRE queda liberado y listo para el próximo clic.
+           Antes, un error a mitad de giro podía dejar isSpinning=true
+           para siempre y el botón dejaba de reaccionar. */
+        isSpinning = false;
+        stopRequested = false;
+        currentSleep = null;
+        setIconoBoton("dado");
+        boton.classList.remove("girando");
+        progressRing.classList.remove("visible");
+        boton.disabled = false;
+    }
 }
 
 /* Lanzar carga */
@@ -940,13 +981,22 @@ const diceWrap = document.getElementById("diceWrap");
     const startX = e.clientX, startY = e.clientY;
     const rect = diceWrap.getBoundingClientRect();
     const offX = startX - rect.left, offY = startY - rect.top;
-    diceWrap.setPointerCapture(e.pointerId);
+    /* IMPORTANTE: el puntero NO se captura aquí en el pointerdown. Si se
+       captura de inmediato, TODOS los eventos posteriores (incluido el
+       "click" final) pasan a tener como target #diceWrap en vez del
+       elemento real bajo el dedo/ratón (el propio #botonSorteo), y el
+       listener de clic del botón deja de recibir el evento — por eso
+       GIRAR podía dejar de funcionar aunque no hubiera arrastre real.
+       Por eso la captura se pide solo cuando de verdad se confirma que
+       hay arrastre (ver más abajo, dentro de mover()). Así un clic normal
+       (sin mover el ratón) llega intacto a #botonSorteo. */
 
     function mover(ev){
       const dx = ev.clientX - startX, dy = ev.clientY - startY;
       if(!seMovio && (Math.abs(dx) > UMBRAL || Math.abs(dy) > UMBRAL)){
         seMovio = true;
         diceWrap.classList.add('arrastrando');
+        try{ diceWrap.setPointerCapture(ev.pointerId); }catch(err){}
       }
       if(seMovio){
         const pos = limitarACanvas(ev.clientX - offX, ev.clientY - offY);
@@ -1040,7 +1090,9 @@ document.getElementById("winnerZoom").addEventListener("click", function(e){
     this.style.pointerEvents = "none";
     this.classList.remove("zoom-activo");
 
-    document.getElementById("winnerName").style.opacity = "0";
+    const wn = document.getElementById("winnerName");
+    wn.style.opacity = "0";
+    wn.classList.remove("visible");
 });
 document.getElementById("winnerName").addEventListener("click", function(e){
 
@@ -1052,6 +1104,7 @@ document.getElementById("winnerName").addEventListener("click", function(e){
     document.getElementById("winnerZoom").classList.remove("zoom-activo");
 
     this.style.opacity = "0";
+    this.classList.remove("visible");
 
 });
 
@@ -1060,6 +1113,8 @@ window.addEventListener('message', function(e){
   const d = e.data || {};
   if(d.type === 'setMode'){
     document.body.classList.toggle('modo-vista', d.mode === 'view');
+  } else if(d.type === 'setBloqueo'){
+    document.body.classList.toggle('candado-cerrado', !!d.locked);
   }
 });
 
