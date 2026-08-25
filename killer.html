@@ -511,6 +511,15 @@ body.candado-cerrado #diceWrap,
 body.candado-cerrado #diceWrap *{
     pointer-events:auto !important;
 }
+/* Con el candado cerrado también se puede seguir habilitando/deshabilitando
+   participantes (clic sobre cada foto), aunque el resto (arrastrar,
+   redimensionar, etc.) siga bloqueado. El propio listener de clic ya
+   ignora los clics mientras isSpinning es true, así que no hace falta
+   ninguna comprobación extra aquí. */
+body.candado-cerrado .foto,
+body.candado-cerrado .foto *{
+    pointer-events:auto !important;
+}
 /* IMPORTANTE: #winnerZoom y #winnerName ocupan una zona grande y fija
    en el centro de la pantalla, con un z-index altísimo, TODO EL RATO
    (aunque estén invisibles con opacity:0, siguen "ahí" en el DOM).
