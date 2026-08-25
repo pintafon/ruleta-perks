@@ -166,13 +166,32 @@ body.modo-vista .oculto-en-vista{ display:none !important; }
     <button onclick="quitar('survivor')">- Survivor</button>
 </div>
 <script>
-function activarCirculo(circulo){
+/* Marcado en orden estricto de izquierda a derecha, de forma
+   independiente para cada categoría (Killer y Survivor): solo se puede
+   marcar en azul el siguiente círculo rojo (el primero libre empezando
+   por la izquierda) y solo se puede desmarcar el último azul (el más a
+   la derecha). Un clic sobre cualquier otro círculo no hace nada, así
+   nunca se puede "saltar" un rojo intermedio ni dejar huecos. */
+function activarCirculo(circulo, contenedor){
     circulo.addEventListener("click", () => {
-        circulo.classList.toggle("ganado");
+        const circulos = Array.from(contenedor.children);
+        const indice = circulos.indexOf(circulo);
+        const marcados = circulos.filter(c => c.classList.contains("ganado")).length;
+
+        if(indice === marcados){
+            // Es el siguiente rojo por la izquierda: se puede marcar.
+            circulo.classList.add("ganado");
+        } else if(indice === marcados - 1){
+            // Es el último azul: se puede desmarcar.
+            circulo.classList.remove("ganado");
+        }
+        // En cualquier otro caso, el clic se ignora (evita saltarse rojas).
     });
 }
 
-document.querySelectorAll(".circulo").forEach(activarCirculo);
+document.querySelectorAll(".contador").forEach(contenedor=>{
+    Array.from(contenedor.children).forEach(circulo => activarCirculo(circulo, contenedor));
+});
 
 function agregar(id){
     const contenedor = document.getElementById(id);
@@ -180,7 +199,7 @@ function agregar(id){
     const nuevo = document.createElement("div");
     nuevo.classList.add("circulo");
 
-    activarCirculo(nuevo);
+    activarCirculo(nuevo, contenedor);
 
     contenedor.appendChild(nuevo);
 }
