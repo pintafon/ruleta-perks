@@ -412,7 +412,12 @@
       <div class="marco-iframe">
         <iframe id="frame-contador" src="contador.html" title="Contador de Victorias"></iframe>
         <div class="overlay-arrastre"></div>
-        <div class="overlay-candado"></div>
+        <!-- Igual que Killer/Survivor: el candado del Contador NO bloquea el
+             iframe desde fuera (passthrough), así los círculos siguen
+             pudiéndose marcar/desmarcar con el candado puesto, esté o no
+             activo el modo edición/ajustes. Solo se ocultan sus botones
+             +/- (vía modo-vista dentro del propio contador.html). -->
+        <div class="overlay-candado overlay-candado-passthrough"></div>
       </div>
       <div class="asa-resize asa-tl"></div>
       <div class="asa-resize asa-tr"></div>
